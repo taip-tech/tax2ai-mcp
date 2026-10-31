@@ -5,6 +5,15 @@ import { timingSafeEqual } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { Settings } from "./config.js";
 import { OC_PATTERN, runWithUserKey } from "./lawgo/client.js";
+import {
+  authServerMetadataUrl,
+  bearerChallenge,
+  createTokenVerifier,
+  protectedResourceMetadata,
+  TokenRejected,
+  type Caller,
+  type TokenVerifier,
+} from "./oauth.js";
 import { buildServer, SERVER_NAME, SERVER_VERSION } from "./server.js";
 import { openDesks, type Desks } from "./tools/context.js";
 
@@ -85,7 +94,7 @@ function originAllowed(origin: string, cfg: Settings): boolean {
 const CORS_HEADERS = {
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Accept, Authorization, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID, X-Lawgo-OC",
-  "Access-Control-Expose-Headers": "Mcp-Session-Id, Mcp-Protocol-Version",
+  "Access-Control-Expose-Headers": "Mcp-Session-Id, Mcp-Protocol-Version, WWW-Authenticate",
   "Access-Control-Max-Age": "86400",
 };
 
@@ -95,9 +104,13 @@ function reply(res: ServerResponse, status: number, body: unknown): void {
 
 export type McpHttpHandler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 
-export function createMcpHandler(cfg: Settings, desks: Desks = openDesks(cfg)): McpHttpHandler {
+export function createMcpHandler(cfg: Settings, desks: Desks = openDesks(cfg), verifier?: TokenVerifier): McpHttpHandler {
   // desks(캐시 포함)는 요청 간 공유
   const quota = new MinuteQuota(cfg.ratePerMinute);
+  const oauth = cfg.authMode === "oauth";
+  if (oauth && !cfg.oauthIssuer) throw new Error("AUTH_MODE=oauth 에는 OAUTH_ISSUER가 필요합니다.");
+  const verify = oauth ? (verifier ?? createTokenVerifier(cfg)) : undefined;
+  let asMetadata: { body: unknown; at: number } | undefined;
 
   return async (req, res) => {
     const url = new URL(req.url ?? "/", "http://local");
@@ -121,9 +134,48 @@ export function createMcpHandler(cfg: Settings, desks: Desks = openDesks(cfg)): 
     if (HEALTH_PATHS.has(path) || (path === "/api/mcp" && url.searchParams.has("health"))) {
       return reply(res, 200, { ok: true, name: SERVER_NAME, version: SERVER_VERSION, endpoint: cfg.publicEndpoint, keyConfigured: desks.api.hasKey });
     }
+    // OAuth 탐색 문서: Vercel에서는 /.well-known/* 를 ?wk= 로 넘겨받는다
+    const wk = path.startsWith("/.well-known/") ? path.slice("/.well-known/".length) : url.searchParams.get("wk");
+    if (wk !== null && (path.startsWith("/.well-known/") || path === "/api/mcp")) {
+      if (!oauth) return reply(res, 404, { error: "not found" });
+      if (wk.startsWith("oauth-protected-resource")) return reply(res, 200, protectedResourceMetadata(cfg));
+      if (wk.startsWith("oauth-authorization-server") || wk.startsWith("openid-configuration")) {
+        // 인증 서버 메타데이터를 MCP 서버 주소에서 찾는 이전 방식 클라이언트를 위한 중계 (10분 캐시)
+        try {
+          if (!asMetadata || Date.now() - asMetadata.at > 600_000) {
+            const r = await fetch(authServerMetadataUrl(cfg.oauthIssuer));
+            if (!r.ok) throw new Error(`인증 서버 응답 ${r.status}`);
+            asMetadata = { body: await r.json(), at: Date.now() };
+          }
+          return reply(res, 200, asMetadata.body);
+        } catch (err) {
+          return reply(res, 502, { error: err instanceof Error ? err.message : "인증 서버 메타데이터를 가져오지 못했습니다" });
+        }
+      }
+      return reply(res, 404, { error: "not found" });
+    }
     if (!MCP_PATHS.has(path)) return reply(res, 404, { error: "not found" });
-    if (!tokenOk(req, cfg.accessToken)) return reply(res, 401, { error: "unauthorized" });
-    if (cfg.publicMode && !cfg.accessToken && !quota.take(clientIp(req, cfg.trustProxy))) {
+    let caller: Caller | undefined;
+    if (verify) {
+      const auth = String(req.headers.authorization ?? "");
+      const m = /^Bearer\s+(.+)$/i.exec(auth);
+      if (!m) {
+        res.setHeader("WWW-Authenticate", bearerChallenge(cfg));
+        return reply(res, 401, { error: "login_required", message: `${cfg.brandName} 로그인이 필요합니다.` });
+      }
+      try {
+        caller = await verify(m[1].trim());
+      } catch (err) {
+        const rejected = err instanceof TokenRejected ? err : undefined;
+        res.setHeader("WWW-Authenticate", bearerChallenge(cfg, { code: "invalid_token", description: rejected?.headerHint ?? "invalid token" }));
+        return reply(res, 401, { error: "invalid_token", message: rejected?.message ?? "토큰을 확인할 수 없습니다. 다시 로그인하세요." });
+      }
+    } else if (!tokenOk(req, cfg.accessToken)) {
+      return reply(res, 401, { error: "unauthorized" });
+    }
+    // 로그인 사용자는 계정 단위, 공개 모드는 IP 단위로 분당 호출 제한
+    const quotaKey = caller ? `user:${caller.userId}` : cfg.publicMode && !cfg.accessToken ? `ip:${clientIp(req, cfg.trustProxy)}` : "";
+    if (quotaKey && !quota.take(quotaKey)) {
       res.setHeader("Retry-After", "60");
       return reply(res, 429, { jsonrpc: "2.0", error: { code: -32000, message: `분당 ${cfg.ratePerMinute}회 호출 한도를 넘었습니다. 1분 뒤 다시 시도하세요.` }, id: null });
     }
