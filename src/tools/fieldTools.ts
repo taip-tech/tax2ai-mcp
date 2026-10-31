@@ -2,7 +2,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { outline } from "../lawgo/guidance.js";
+import { outline, treatyArticles } from "../lawgo/guidance.js";
 import { deemedInterest, entertainmentLimit, penaltyEstimate } from "../domain/fieldCalc.js";
 import { OFFLINE, READ_ONLY, type Desks } from "./context.js";
 import { guarded, paged, text, won } from "./reply.js";
@@ -121,7 +121,7 @@ export function registerFieldTools(server: McpServer, d: Desks): void {
     "find_treaty",
     {
       title: "조세조약 찾기",
-      description: "법제처 조약 자료에서 조세조약(이중과세방지협약)을 검색하거나 id로 본문을 읽습니다. 국가명과 함께 검색하세요 (예: \"미국 소득\", \"베트남 이중과세\").",
+      description: "조세조약(이중과세방지협약)을 국가명으로 찾거나(예: 미국, 베트남, 일본) id로 본문을 읽습니다. 국가명을 넣으면 조세조약만 골라 보여주고, keyword로 본문 중 필요한 부분(배당, 이자, 고정사업장 등)만 볼 수 있습니다.",
       inputSchema: {
         query: z.string().optional(),
         id: z.string().optional().describe("검색 결과의 조약 id → 본문"),
@@ -134,15 +134,25 @@ export function registerFieldTools(server: McpServer, d: Desks): void {
     guarded(async ({ query, id, keyword, limit, cursor }) => {
       if (id) {
         const tree = await d.guidance.readTreaty(id);
-        const keep = keyword ? (b: string) => b.includes(keyword) : undefined;
-        const body = outline(tree, keep);
-        if (!body.trim()) return text(`[NO_MATCH] 조약 ${id}에서 '${keyword}'가 든 부분을 찾지 못했습니다.`);
-        return paged(`■ 조약 ${id}\n\n${body}`, cursor, d.cfg.charBudget);
+        const articles = treatyArticles(tree);
+        if (articles.length <= 1) {
+          const body = outline(tree, keyword ? (b: string) => b.includes(keyword) : undefined);
+          if (!body.trim()) return text(`[NO_MATCH] 조약 ${id}에서 '${keyword}'가 든 부분을 찾지 못했습니다.`);
+          return paged(`■ 조약 ${id}\n\n${body}`, cursor, d.cfg.charBudget);
+        }
+        const picked = keyword ? articles.filter((a) => a.text.includes(keyword)) : articles;
+        if (!picked.length) return text(`[NO_MATCH] 조약 ${id}에서 '${keyword}'가 든 조문을 찾지 못했습니다.`);
+        const head = keyword
+          ? `■ 조약 ${id} — '${keyword}'가 든 조문 ${picked.length}개 (전체 ${articles.length}개 중)\n${picked.map((a) => a.heading).join(", ")}\n`
+          : `■ 조약 ${id} (조문 ${articles.length}개)\n`;
+        return paged(head + "\n" + picked.map((a) => a.text).join("\n\n"), cursor, d.cfg.charBudget);
       }
       if (!query) return text("[BAD_INPUT] query 또는 id 중 하나는 필요합니다.");
-      const rows = await d.guidance.findTreaties(query, limit);
+      const { rows, taxOnly } = await d.guidance.findTreaties(query, limit);
       if (!rows.length) return text(`[NO_MATCH] '${query}' 조약 검색 결과가 없습니다. 국가명만 넣어 보세요.`);
+      const head = taxOnly ? `■ '${query}' 조세조약 ${rows.length}건 (본 협약 → 개정의정서 → 기타 순)\n` : `■ '${query}' 조약 검색 (조세조약으로 좁히려면 국가명만 넣으세요)\n`;
       return text(
+        head +
         rows
           .map((r, i) => `${i + 1}. ${r.name} [${[r.kind, r.treatyNo && `조약 제${r.treatyNo}호`, r.effective && `발효 ${r.effective}`].filter(Boolean).join(" · ")}] → id=${r.id}`)
           .join("\n"),

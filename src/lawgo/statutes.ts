@@ -85,18 +85,27 @@ export class StatuteDesk {
   }
 
   /** 시행일 기준 버전 목록 (최근 시행일 순) */
-  async versions(name: string, opts: { upcomingOnly?: boolean } = {}): Promise<StatuteRow[]> {
+  /**
+   * 시행일 기준 버전 목록 (최근 시행일 순).
+   * DRF는 nw를 생략하거나 sort를 주면 현행만 돌려주므로 nw=1,2,3(연혁·시행예정·현행)을 명시한다.
+   * 결과는 시행일 내림차순으로 오며, reachBack 날짜 이하 버전이 나올 때까지 최대 3쪽을 읽는다.
+   */
+  async versions(name: string, opts: { upcomingOnly?: boolean; reachBack?: string } = {}): Promise<StatuteRow[]> {
     const official = canonicalLawName(name);
-    const payload = await this.api.search("eflaw", {
-      query: official,
-      display: 100,
-      sort: "efdes",
-      nw: opts.upcomingOnly ? 2 : undefined,
-    });
-    return locateRows(payload, ["law"])
-      .map(toStatuteRow)
-      .filter((r) => sameLawName(r.name, official))
-      .sort((a, b) => b.effective.localeCompare(a.effective));
+    const out: StatuteRow[] = [];
+    for (let page = 1; page <= 3; page++) {
+      const payload = await this.api.search("eflaw", {
+        query: official,
+        display: 100,
+        page,
+        nw: opts.upcomingOnly ? 2 : "1,2,3",
+      });
+      const rows = locateRows(payload, ["law"]).map(toStatuteRow);
+      out.push(...rows.filter((r) => sameLawName(r.name, official)));
+      const reached = !opts.reachBack || out.some((r) => r.effective && r.effective <= opts.reachBack!);
+      if (rows.length < 100 || reached || opts.upcomingOnly) break;
+    }
+    return out.sort((a, b) => b.effective.localeCompare(a.effective));
   }
 
   /** 법령명을 하나의 법령(현행 또는 지정 시점 버전)으로 확정 */
@@ -105,7 +114,7 @@ export class StatuteDesk {
     if (asOf) {
       const day = asOf.replace(/-/g, "");
       if (!/^\d{8}$/.test(day)) throw new LawgoFault("BAD_INPUT", "asOf는 YYYY-MM-DD 형식이어야 합니다.");
-      const hit = (await this.versions(official)).find((v) => v.effective && v.effective <= day);
+      const hit = (await this.versions(official, { reachBack: day })).find((v) => v.effective && v.effective <= day);
       if (!hit) throw new LawgoFault("NO_MATCH", `${official}의 ${ymd(day)} 시점 시행 버전을 찾지 못했습니다.`);
       return { ...hit, asOf: day };
     }

@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { RULING_KINDS, RULING_SOURCES, type RulingKind } from "../lawgo/sources.js";
 import type { RulingRow } from "../lawgo/rulings.js";
+import { canonicalLawName } from "../domain/taxLawBook.js";
 import { READ_ONLY, type Desks } from "./context.js";
 import { guarded, paged, text } from "./reply.js";
 
@@ -10,7 +11,8 @@ const KIND_HELP = "court=법원 판례, constitutional=헌재 결정, tribunal=�
 
 function rulingLine(r: RulingRow, i: number): string {
   const meta = [r.caseNo, r.date, r.org].filter(Boolean).join(" · ");
-  return `${i + 1}. ${r.title || "(제목 없음)"}${meta ? `  [${meta}]` : ""}  → source=${r.kind}, id=${r.id}`;
+  const nts = r.origin.includes("국세법령") ? "  (본문: 국세법령정보시스템)" : "";
+  return `${i + 1}. ${r.title || "(제목 없음)"}${meta ? `  [${meta}]` : ""}  → source=${r.kind}, id=${r.id}${nts}`;
 }
 
 export function registerResearchTools(server: McpServer, d: Desks): void {
@@ -66,7 +68,7 @@ export function registerResearchTools(server: McpServer, d: Desks): void {
     {
       title: "행정규칙 (기본통칙·고시·훈령·예규)",
       description:
-        "국세청·기획재정부 등의 행정규칙을 검색하거나(query), id로 본문을 읽습니다. 기본통칙, 사무처리규정, 고시 확인에 사용하세요.",
+        "국세청·재정경제부 등의 행정규칙(훈령·예규·고시, 예: 법인세 사무처리규정)을 검색하거나(query), id로 본문을 읽습니다. 국세청 기본통칙·집행기준은 법제처 자료에 없으므로 국세법령정보시스템에서 확인해야 합니다.",
       inputSchema: {
         query: z.string().optional().describe("행정규칙명 키워드 (예: 법인세 기본통칙)"),
         id: z.string().optional().describe("검색 결과의 행정규칙 id → 본문 조회"),
@@ -82,12 +84,21 @@ export function registerResearchTools(server: McpServer, d: Desks): void {
         return paged(`■ ${doc.name}\n${doc.meta}\n\n${doc.body}`, cursor, d.cfg.charBudget);
       }
       if (!query) return text("[BAD_INPUT] query 또는 id 중 하나는 필요합니다.");
-      const rows = await d.guidance.findAdminRules(query, { inBody, limit });
-      if (!rows.length) return text(`[NO_MATCH] '${query}' 행정규칙 검색 결과가 없습니다.`);
+      let rows = await d.guidance.findAdminRules(query, { inBody, limit });
+      let note = "";
+      const words = query.trim().split(/\s+/);
+      if (!rows.length && words.length > 1) {
+        // "법인세 기본통칙"처럼 법제처에 없는 자료명이 섞인 경우 첫 단어로 다시 찾는다
+        rows = await d.guidance.findAdminRules(words[0], { inBody, limit });
+        if (rows.length) note = `'${query}' 결과가 없어 '${words[0]}'로 다시 찾았습니다.\n`;
+      }
+      if (/기본통칙|집행기준/.test(query)) note += "※ 국세청 기본통칙·집행기준은 법제처 자료에 없습니다. 국세법령정보시스템(taxlaw.nts.go.kr)에서 확인하세요.\n";
+      if (!rows.length) return text(`[NO_MATCH] '${query}' 행정규칙 검색 결과가 없습니다.\n${note}`.trim());
       return text(
-        rows
-          .map((r, i) => `${i + 1}. ${r.name} [${[r.type, r.ministry, r.issued && `발령 ${r.issued}`].filter(Boolean).join(" · ")}] → id=${r.id}`)
-          .join("\n"),
+        note +
+          rows
+            .map((r, i) => `${i + 1}. ${r.name} [${[r.type, r.ministry, r.issued && `발령 ${r.issued}`].filter(Boolean).join(" · ")}] → id=${r.id}`)
+            .join("\n"),
       );
     }),
   );
@@ -127,14 +138,20 @@ export function registerResearchTools(server: McpServer, d: Desks): void {
     "explain_term",
     {
       title: "법령용어 풀이",
-      description: "법령에서 정의한 용어(예: 특수관계인, 사업연도, 손금)의 법령상 정의와 출처를 보여줍니다.",
-      inputSchema: { term: z.string().min(1) },
+      description: "법령에서 정의한 용어(예: 특수관계인, 사업연도, 내국법인)의 법령별 정의와 출처를 보여줍니다. law를 주면 그 법령의 정의만 남깁니다.",
+      inputSchema: {
+        term: z.string().min(1),
+        law: z.string().optional().describe("정의를 볼 법령 (예: 법인세법)"),
+      },
       annotations: READ_ONLY,
     },
-    guarded(async ({ term }) => {
-      const rows = await d.guidance.explainTerm(term);
-      if (!rows.length) return text(`[NO_MATCH] '${term}' 법령용어 정의를 찾지 못했습니다. find_statute(scope=body)로 정의 조문을 찾아보세요.`);
-      return text(rows.map((r) => `■ ${r.term}${r.source ? ` (${r.source})` : ""}\n${r.definition || "(정의 본문 없음)"}`).join("\n\n"));
+    guarded(async ({ term, law }) => {
+      const r = await d.guidance.explainTerm(term, law ? canonicalLawName(law) : undefined);
+      if (!r.definitions.length) return text(`[NO_MATCH] '${r.term}'의 정의 본문이 없습니다. find_statute(scope=body)로 정의 조문을 찾아보세요.`);
+      const head = `■ ${r.term}${r.term !== term ? ` ('${term}'와 가장 가까운 용어)` : ""} — 정의 ${r.definitions.length}건`;
+      const body = r.definitions.slice(0, 8).map((x, i) => `${i + 1}. ${x.definition}${x.source ? `\n   출처: ${x.source}` : ""}`).join("\n");
+      const rel = r.related.length ? `\n\n관련 용어: ${r.related.join(", ")}` : "";
+      return text(`${head}\n\n${body}${rel}`);
     }),
   );
 }

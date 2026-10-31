@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { LawgoFault } from "../lawgo/client.js";
-import { outline } from "../lawgo/guidance.js";
+import { delegationEntries, revisionPairs } from "../lawgo/guidance.js";
 import { ymd } from "../lawgo/shape.js";
 import type { Provision, ResolvedStatute, StatuteRow } from "../lawgo/statutes.js";
 import { articleLabel, parseArticleInput } from "../domain/citation.js";
@@ -54,8 +54,19 @@ async function upcomingNote(d: Desks, law: ResolvedStatute): Promise<string> {
     const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
     const pending = (await d.statutes.versions(law.name, { upcomingOnly: true })).filter((v) => v.effective > today);
     if (!pending.length) return "";
-    const list = pending.slice(0, 3).map((v) => `${ymd(v.effective)} 시행(공포 ${ymd(v.promulgated)}, ${v.revision})`);
-    return `\n\n⚠ 시행 예정 개정이 있습니다: ${list.join("; ")}. 해당 날짜를 asOf로 넣어 개정 후 문언을 확인하세요.`;
+    // 현행보다 늦게 공포된 것만 '새 개정'으로 보고, 오래전 공포분은 시행이 유예된 과거 개정으로 따로 안내한다
+    const fresh = pending.filter((v) => v.promulgated >= law.promulgated);
+    const deferred = pending.length - fresh.length;
+    const parts: string[] = [];
+    if (fresh.length) {
+      const list = fresh.slice(0, 3).map((v) => `${ymd(v.effective)} 시행(공포 ${ymd(v.promulgated)}, ${v.revision})`);
+      parts.push(`⚠ 시행 예정 개정이 있습니다: ${list.join("; ")}. 해당 날짜를 asOf로 넣어 개정 후 문언을 확인하세요.`);
+    }
+    if (deferred) {
+      const dates = pending.filter((v) => v.promulgated < law.promulgated).map((v) => ymd(v.effective));
+      parts.push(`참고: 과거 개정 중 시행이 유예된 부분이 ${deferred}건 있습니다 (시행 ${dates.join(", ")}). 이 조문과 관련 있는지는 asOf로 확인하세요.`);
+    }
+    return "\n\n" + parts.join("\n");
   } catch {
     return ""; // 부가 정보이므로 실패해도 본 응답은 유지
   }
@@ -209,14 +220,35 @@ export function registerStatuteTools(server: McpServer, d: Desks): void {
     guarded(async ({ law, article, mode, cursor }) => {
       const resolved = await d.statutes.resolve(law);
       const tree = await d.guidance.delegationOutline(resolved, mode);
-      let keep: ((b: string) => boolean) | undefined;
-      if (article) {
-        const label = articleLabel(needArticle(article)).replace(/\s/g, "");
-        keep = (b) => b.replace(/\s/g, "").includes(label);
+      const target = article ? needArticle(article) : undefined;
+      let entries = delegationEntries(tree);
+      if (target) entries = entries.filter((e) => e.article === target.article && e.branch === target.branch);
+      if (!entries.length) {
+        throw new LawgoFault("NO_MATCH", `${resolved.name}${target ? ` ${articleLabel(target)}` : ""}에 대한 ${mode === "cited" ? "인용" : "위임"} 연결 정보가 없습니다.`);
       }
-      const body = outline(tree, keep);
-      if (!body.trim()) throw new LawgoFault("NO_MATCH", `${resolved.name}${article ? ` ${article}` : ""}에 대한 연결 정보가 없습니다.`);
-      return paged(`■ ${resolved.name} ${mode === "cited" ? "인용" : "위임"} 연결\n\n${body}`, cursor, d.cfg.charBudget);
+      // 시행령 조문 제목은 3단 비교에 비어 오는 경우가 많아 시행령 본문에서 채운다
+      const decreeTitles = new Map<string, string>();
+      try {
+        const decree = await d.statutes.resolve(`${resolved.name.replace(/\s*(시행령|시행규칙)$/, "")} 시행령`);
+        for (const p of await d.statutes.provisions(decree)) decreeTitles.set(`${p.article}-${p.branch}`, p.title);
+      } catch {
+        // 제목 없이도 연결 정보는 유효
+      }
+      const label = (k: { no: number; branch: number; title: string }, titles?: Map<string, string>) => {
+        const t = k.title.replace(/^제\s*\d+\s*조(?:의\s*\d+)?\s*/, "").replace(/^\(|\)$/g, "") || titles?.get(`${k.no}-${k.branch}`) || "";
+        return `제${k.no}조${k.branch ? `의${k.branch}` : ""}${t ? `(${t})` : ""}`;
+      };
+      const lines = entries.map((e) =>
+        [
+          `▶ ${resolved.name} ${articleLabel(e)}`,
+          e.decree.length ? `   시행령: ${e.decree.map((k) => label(k, decreeTitles)).join(", ")}` : "",
+          e.rule.length ? `   시행규칙: ${e.rule.map((k) => label(k)).join(", ")}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      );
+      const head = `■ ${resolved.name} ${mode === "cited" ? "인용" : "위임"} 연결 (${entries.length}개 조)\n각 조문 원문은 read_provision(law="${resolved.name} 시행령", article=…)으로 확인하세요.\n`;
+      return paged(head + "\n" + lines.join("\n"), cursor, d.cfg.charBudget);
     }),
   );
 
@@ -231,14 +263,19 @@ export function registerStatuteTools(server: McpServer, d: Desks): void {
     guarded(async ({ law, article, cursor }) => {
       const resolved = await d.statutes.resolve(law);
       const tree = await d.guidance.revisionComparison(resolved);
-      let keep: ((b: string) => boolean) | undefined;
+      let pairs = revisionPairs(tree);
+      if (!pairs.length) throw new LawgoFault("NO_MATCH", `${resolved.name} 신구조문 자료가 없습니다.`);
       if (article) {
-        const label = articleLabel(needArticle(article)).replace(/\s/g, "");
-        keep = (b) => b.replace(/\s/g, "").includes(label);
+        const t = needArticle(article);
+        pairs = pairs.filter((p) => p.article === t.article && p.branch === t.branch);
+        if (!pairs.length) throw new LawgoFault("NO_MATCH", `최근 개정에서 ${articleLabel(t)}는 바뀌지 않았습니다. article을 빼면 바뀐 조문 목록을 볼 수 있습니다.`);
       }
-      const body = outline(tree, keep);
-      if (!body.trim()) throw new LawgoFault("NO_MATCH", `${resolved.name} 신구조문 자료가 없습니다.`);
-      return paged(`■ ${resolved.name} 신구조문 대비 (시행 ${ymd(resolved.effective)})\n\n${body}`, cursor, d.cfg.charBudget);
+      const head = `■ ${resolved.name} 신구조문 대비 (현행 시행 ${ymd(resolved.effective)}, 공포 ${ymd(resolved.promulgated)})\n【 】 안이 바뀐 부분입니다.\n`;
+      const body = article
+        ? pairs.map((p) => `▶ ${p.label}\n[개정 전]\n${p.before}\n\n[개정 후]\n${p.after}`).join("\n\n")
+        : `바뀐 조문 ${pairs.length}개: ${pairs.map((p) => p.label).join(", ")}\n\n` +
+          pairs.map((p) => `▶ ${p.label}\n[개정 전] ${p.before.split("\n")[0]}\n[개정 후] ${p.after.split("\n")[0]}`).join("\n\n");
+      return paged(head + "\n" + body, cursor, d.cfg.charBudget);
     }),
   );
 }

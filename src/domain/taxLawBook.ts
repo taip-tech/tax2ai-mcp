@@ -73,3 +73,12 @@ export function allStatuteSpellings(): string[] {
 export function sameLawName(a: string, b: string): boolean {
   return squash(canonicalLawName(a)) === squash(canonicalLawName(b));
 }
+
+/** 세법(및 그 시행령·시행규칙)인지 — 사전에 등록된 법령 기준 */
+export function isTaxStatute(name: string): boolean {
+  const base = canonicalLawName(name).replace(/\s*(시행령|시행규칙)$/, "");
+  return TAX_STATUTES.some((t) => t.official === base);
+}
+
+/** 세무 관련 행정규칙 소관 기관 */
+export const TAX_AUTHORITIES = ["국세청", "재정경제부", "기획재정부", "조세심판원", "행정안전부", "관세청"];

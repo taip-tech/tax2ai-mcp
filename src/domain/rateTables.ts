@@ -44,14 +44,13 @@ const CORPORATE: RateEdition[] = [
   {
     from: "2026-01-01",
     until: "2027-01-01",
-    legalBasis: "법인세법 제55조제1항 (2025년 세법개정, 2026.1.1. 이후 개시 사업연도)",
+    legalBasis: "법인세법 제55조제1항 (2025.12.23. 개정, 2026.1.1. 이후 개시 사업연도 · 부칙 제5조)",
     brackets: [
       { upTo: 2 * EOK, pct: 10 },
       { upTo: 200 * EOK, pct: 20 },
       { upTo: 3000 * EOK, pct: 22 },
       { upTo: Infinity, pct: 25 },
     ],
-    caution: "최근 개정 구간입니다. read_provision으로 법인세법 제55조 현행 원문을 반드시 대조하세요.",
   },
 ];
 

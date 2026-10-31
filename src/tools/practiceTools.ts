@@ -6,7 +6,7 @@ import { LawgoFault } from "../lawgo/client.js";
 import type { Provision, ResolvedStatute } from "../lawgo/statutes.js";
 import { RULING_SOURCES, type RulingKind } from "../lawgo/sources.js";
 import { articleLabel, extractArticleRefs, type ArticleRef } from "../domain/citation.js";
-import { canonicalLawName } from "../domain/taxLawBook.js";
+import { canonicalLawName, isTaxStatute, TAX_AUTHORITIES } from "../domain/taxLawBook.js";
 import { corporateTax, personalIncomeTax } from "../domain/rateTables.js";
 import { claimAndAssessmentWindows } from "../domain/dueDates.js";
 import { OFFLINE, READ_ONLY, type Desks } from "./context.js";
@@ -195,8 +195,15 @@ export function registerPracticeTools(server: McpServer, d: Desks): void {
     },
     guarded(async ({ issue, perSource, rulingSources, cursor }) => {
       const [statutes, rules, ...rulings] = await Promise.allSettled([
-        d.statutes.find(issue, { inBody: true, limit: perSource * 2 }),
-        d.guidance.findAdminRules(issue, { inBody: true, limit: perSource }),
+        // 세법을 앞세우기 위해 넉넉히 받아 거른다
+        d.statutes.find(issue, { inBody: true, limit: 50 }).then((r) => {
+          const tax = r.rows.filter((x) => isTaxStatute(x.name));
+          return { ...r, rows: (tax.length ? tax : r.rows).slice(0, perSource * 2) };
+        }),
+        d.guidance.findAdminRules(issue, { inBody: true, limit: 30 }).then((rows) => {
+          const tax = rows.filter((x) => TAX_AUTHORITIES.some((a) => x.ministry.includes(a)));
+          return (tax.length ? tax : rows).slice(0, perSource);
+        }),
         ...rulingSources.map((k) => d.rulings.find(k as RulingKind, issue, { limit: perSource, fullText: true })),
       ]);
       const out: string[] = [`■ 쟁점: ${issue}`, ""];
