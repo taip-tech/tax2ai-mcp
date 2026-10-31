@@ -116,8 +116,20 @@ export function createMcpHandler(cfg: Settings, desks: Desks = openDesks(cfg), v
     const url = new URL(req.url ?? "/", "http://local");
     if (cfg.accessLog) {
       const t0 = Date.now();
-      // 쿼리(?oc=)와 본문은 남기지 않는다
-      res.on("finish", () => console.error(`[access] ${req.method} ${url.pathname} ${res.statusCode} ${Date.now() - t0}ms`));
+      // 쿼리(?oc=)와 요청 본문은 남기지 않는다. 400 이상이면 서버가 돌려준 오류 문구만 덧붙인다
+      let errorHint = "";
+      const end = res.end.bind(res) as (...a: unknown[]) => ServerResponse;
+      res.end = ((...args: unknown[]) => {
+        if (res.statusCode >= 400 && res.statusCode !== 401 && typeof args[0] === "string") {
+          const m = /"message"\s*:\s*"([^"]{0,160})/.exec(args[0]);
+          if (m) errorHint = ` — ${m[1]}`;
+        }
+        return end(...args);
+      }) as typeof res.end;
+      res.on("finish", () => {
+        const ver = req.headers["mcp-protocol-version"] ? ` v=${req.headers["mcp-protocol-version"]}` : "";
+        console.error(`[access] ${req.method} ${url.pathname} ${res.statusCode} ${Date.now() - t0}ms${ver}${errorHint}`);
+      });
     }
     const origin = req.headers.origin;
     if (origin) {
