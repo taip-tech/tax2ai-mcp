@@ -1,0 +1,244 @@
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import { LawgoFault } from "../lawgo/client.js";
+import { outline } from "../lawgo/guidance.js";
+import { ymd } from "../lawgo/shape.js";
+import type { Provision, ResolvedStatute, StatuteRow } from "../lawgo/statutes.js";
+import { articleLabel, parseArticleInput } from "../domain/citation.js";
+import { READ_ONLY, type Desks } from "./context.js";
+import { guarded, paged, text } from "./reply.js";
+
+const lawArg = z.string().min(2).describe("법령명. 줄임말 허용 (예: 법법, 조특법 시행령, 상증법)");
+const articleArg = z.string().describe("조문번호 (예: 52, 제52조, 52의2, 10-2)");
+const cursorArg = z.number().int().min(0).optional().describe("이전 응답의 [MORE] 안내에 나온 이어받기 위치");
+const asOfArg = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .optional()
+  .describe("이 날짜에 시행 중이던 버전으로 조회 (YYYY-MM-DD). 생략하면 현행");
+
+function rowLine(r: StatuteRow, i: number): string {
+  const bits = [
+    r.kind && `[${r.kind}]`,
+    r.effective && `시행 ${ymd(r.effective)}`,
+    r.promulgated && `공포 ${ymd(r.promulgated)}`,
+    r.revision,
+    r.ministry,
+    r.status,
+    `MST ${r.mst}`,
+  ].filter(Boolean);
+  return `${i + 1}. ${r.name}${r.nickname && r.nickname !== r.name ? ` (약칭: ${r.nickname})` : ""}  ${bits.join(" · ")}`;
+}
+
+function needArticle(raw: string) {
+  const parsed = parseArticleInput(raw);
+  if (!parsed) throw new LawgoFault("BAD_INPUT", `조문번호를 해석할 수 없습니다: ${raw}`);
+  return parsed;
+}
+
+function provisionBlock(law: ResolvedStatute, p: Provision, paragraph?: number): string {
+  const head = `■ ${law.name} ${articleLabel(p)}${p.title ? `(${p.title})` : ""}`;
+  const when = law.asOf ? `${ymd(law.asOf)} 시점 버전 · 시행 ${ymd(law.effective)}` : `현행 · 시행 ${ymd(law.effective)}`;
+  const status = p.repealed ? " · ⚠ 삭제된 조문" : "";
+  let bodyText = p.text;
+  if (paragraph) {
+    const c = p.clauses.find((x) => x.no === paragraph);
+    if (!c) throw new LawgoFault("NO_MATCH", `${law.name} ${articleLabel(p)}에 제${paragraph}항이 없습니다 (항 ${p.clauses.length}개).`);
+    bodyText = [c.text, ...c.items.map((it) => "  " + it.text)].join("\n");
+  }
+  return `${head}\n(${when}${p.effective ? ` · 조문시행 ${ymd(p.effective)}` : ""}${status})\n\n${bodyText}`;
+}
+
+async function upcomingNote(d: Desks, law: ResolvedStatute): Promise<string> {
+  try {
+    const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const pending = (await d.statutes.versions(law.name, { upcomingOnly: true })).filter((v) => v.effective > today);
+    if (!pending.length) return "";
+    const list = pending.slice(0, 3).map((v) => `${ymd(v.effective)} 시행(공포 ${ymd(v.promulgated)}, ${v.revision})`);
+    return `\n\n⚠ 시행 예정 개정이 있습니다: ${list.join("; ")}. 해당 날짜를 asOf로 넣어 개정 후 문언을 확인하세요.`;
+  } catch {
+    return ""; // 부가 정보이므로 실패해도 본 응답은 유지
+  }
+}
+
+export function registerStatuteTools(server: McpServer, d: Desks): void {
+  server.registerTool(
+    "find_statute",
+    {
+      title: "세법 법령 찾기",
+      description:
+        "법령명(줄임말 자동 확장) 또는 본문 키워드로 법률·시행령·시행규칙을 찾습니다. 결과의 법령명을 read_provision 등에 그대로 넘기면 됩니다.",
+      inputSchema: {
+        query: z.string().min(1).describe("법령명 또는 본문 키워드"),
+        scope: z.enum(["title", "body"]).default("title").describe("title=법령명 검색, body=조문 본문 검색"),
+        limit: z.number().int().min(1).max(50).default(10),
+        page: z.number().int().min(1).default(1),
+      },
+      annotations: READ_ONLY,
+    },
+    guarded(async ({ query, scope, limit, page }) => {
+      const { query: used, rows } = await d.statutes.find(query, { inBody: scope === "body", limit, page });
+      if (!rows.length) return text(`[NO_MATCH] '${used}' 검색 결과가 없습니다. scope를 바꾸거나 정식 법령명으로 다시 시도하세요.`);
+      const head = used !== query ? `검색어 '${query}' → '${used}'로 확장\n` : "";
+      return text(head + rows.map(rowLine).join("\n"));
+    }),
+  );
+
+  server.registerTool(
+    "read_provision",
+    {
+      title: "조문 원문 읽기",
+      description:
+        "법령의 특정 조문(및 항) 원문을 가져옵니다. asOf로 과거·미래 시점 버전을 볼 수 있고, 시행 예정 개정이 있으면 경고를 붙입니다. article을 생략하면 조문 목차를 돌려줍니다.",
+      inputSchema: {
+        law: lawArg,
+        article: articleArg.optional(),
+        paragraph: z.number().int().min(1).optional().describe("특정 항만 보고 싶을 때"),
+        asOf: asOfArg,
+        cursor: cursorArg,
+      },
+      annotations: READ_ONLY,
+    },
+    guarded(async ({ law, article, paragraph, asOf, cursor }) => {
+      const resolved = await d.statutes.resolve(law, asOf);
+      if (!article) {
+        const all = await d.statutes.provisions(resolved);
+        const toc = all.map((p) => `${articleLabel(p)}${p.title ? ` ${p.title}` : ""}${p.repealed ? " (삭제)" : ""}`);
+        return paged(`■ ${resolved.name} 조문 목차 (시행 ${ymd(resolved.effective)}, ${all.length}개 조)\n\n${toc.join("\n")}`, cursor, d.cfg.charBudget);
+      }
+      const target = needArticle(article);
+      const found = await d.statutes.provisions(resolved, target);
+      if (!found.length) {
+        throw new LawgoFault("NO_MATCH", `${resolved.name}에 ${articleLabel(target)}가 없습니다. article을 생략하면 목차를 볼 수 있습니다.`);
+      }
+      const note = asOf ? "" : await upcomingNote(d, resolved);
+      return paged(found.map((p) => provisionBlock(resolved, p, paragraph)).join("\n\n") + note, cursor, d.cfg.charBudget);
+    }),
+  );
+
+  server.registerTool(
+    "trace_amendments",
+    {
+      title: "조문 개정 흐름",
+      description:
+        "법령의 시행일별 버전 목록을 보여주고, article을 주면 최근 버전들 사이에서 해당 조문 문언이 바뀐 시점을 표시합니다. 귀속연도별 적용 조문 확인에 사용하세요.",
+      inputSchema: {
+        law: lawArg,
+        article: articleArg.optional(),
+        depth: z.number().int().min(2).max(8).default(5).describe("비교할 최근 버전 수"),
+        cursor: cursorArg,
+      },
+      annotations: READ_ONLY,
+    },
+    guarded(async ({ law, article, depth, cursor }) => {
+      const versions = await d.statutes.versions(law);
+      if (!versions.length) throw new LawgoFault("NO_MATCH", `${law}의 시행일 버전 정보를 찾지 못했습니다.`);
+      const lines = [`■ ${versions[0].name} 시행일별 버전 (최근 ${Math.min(versions.length, 30)}건)`];
+      versions.slice(0, 30).forEach((v, i) => lines.push(rowLine(v, i)));
+      if (article) {
+        const target = needArticle(article);
+        lines.push("", `■ ${articleLabel(target)} 문언 비교 (최근 ${depth}개 버전, 최신 → 과거)`);
+        const picked = versions.slice(0, depth);
+        const texts = await Promise.all(
+          picked.map((v) =>
+            d.statutes
+              .provisions({ ...v, asOf: v.effective }, target)
+              .then((ps) => ps[0]?.text ?? "(해당 조문 없음)")
+              .catch(() => "(조회 실패)"),
+          ),
+        );
+        picked.forEach((v, i) => {
+          const older = texts[i + 1];
+          const tag = older === undefined ? "기준" : older === texts[i] ? "직전과 동일" : "⚑ 직전 버전과 다름";
+          lines.push(`\n— 시행 ${ymd(v.effective)} (${v.revision}) : ${tag}`);
+          if (tag !== "직전과 동일") lines.push(texts[i]);
+        });
+      }
+      return paged(lines.join("\n"), cursor, d.cfg.charBudget);
+    }),
+  );
+
+  server.registerTool(
+    "read_transition_rules",
+    {
+      title: "부칙 (시행일·적용례·경과조치)",
+      description:
+        "법령 부칙에서 시행일, 적용례(\"~이후 개시하는 사업연도분부터 적용\"), 경과조치를 찾습니다. 개정 조문이 어느 사업연도·귀속연도부터 적용되는지 판단할 때 사용하세요. keyword로 특정 조문을 언급한 부칙만 걸러낼 수 있습니다.",
+      inputSchema: {
+        law: lawArg,
+        keyword: z.string().optional().describe("부칙 본문에서 찾을 말 (예: 제55조, 사업연도)"),
+        promulgatedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("특정 공포일의 부칙만"),
+        limit: z.number().int().min(1).max(20).default(3).describe("최근 공포 순으로 보여줄 부칙 수"),
+        asOf: asOfArg,
+        cursor: cursorArg,
+      },
+      annotations: READ_ONLY,
+    },
+    guarded(async ({ law, keyword, promulgatedOn, limit, asOf, cursor }) => {
+      const resolved = await d.statutes.resolve(law, asOf);
+      let rows = await d.statutes.addenda(resolved);
+      if (promulgatedOn) rows = rows.filter((a) => a.promulgated === promulgatedOn.replace(/-/g, ""));
+      if (keyword) {
+        const k = keyword.replace(/\s/g, "");
+        rows = rows.filter((a) => a.text.replace(/\s/g, "").includes(k));
+      }
+      if (!rows.length) {
+        throw new LawgoFault("NO_MATCH", `${resolved.name}에서 조건에 맞는 부칙을 찾지 못했습니다.${keyword ? " keyword를 바꾸거나 빼 보세요." : ""}`);
+      }
+      const shown = rows.slice(0, limit);
+      const blocks = shown.map((a) => `■ 부칙 <${ymd(a.promulgated)}${a.number ? ` 제${a.number}호` : ""}>\n${a.text}`);
+      const head = `■ ${resolved.name} 부칙 ${shown.length}건${rows.length > shown.length ? ` (조건에 맞는 ${rows.length}건 중 최근 순)` : ""}\n`;
+      return paged(head + "\n" + blocks.join("\n\n"), cursor, d.cfg.charBudget);
+    }),
+  );
+
+  server.registerTool(
+    "trace_delegation",
+    {
+      title: "위임 법령 연결",
+      description:
+        "법률 조문이 시행령·시행규칙 어디로 위임되는지(또는 어디를 인용하는지) 법제처 3단 비교 자료로 보여줍니다. article을 주면 해당 조와 관련된 블록만 남깁니다.",
+      inputSchema: {
+        law: lawArg.describe("법률명 (시행령을 넣으면 시행령 기준)"),
+        article: articleArg.optional(),
+        mode: z.enum(["delegated", "cited"]).default("delegated").describe("delegated=위임조문, cited=인용조문"),
+        cursor: cursorArg,
+      },
+      annotations: READ_ONLY,
+    },
+    guarded(async ({ law, article, mode, cursor }) => {
+      const resolved = await d.statutes.resolve(law);
+      const tree = await d.guidance.delegationOutline(resolved, mode);
+      let keep: ((b: string) => boolean) | undefined;
+      if (article) {
+        const label = articleLabel(needArticle(article)).replace(/\s/g, "");
+        keep = (b) => b.replace(/\s/g, "").includes(label);
+      }
+      const body = outline(tree, keep);
+      if (!body.trim()) throw new LawgoFault("NO_MATCH", `${resolved.name}${article ? ` ${article}` : ""}에 대한 연결 정보가 없습니다.`);
+      return paged(`■ ${resolved.name} ${mode === "cited" ? "인용" : "위임"} 연결\n\n${body}`, cursor, d.cfg.charBudget);
+    }),
+  );
+
+  server.registerTool(
+    "compare_revision",
+    {
+      title: "신구조문 대비",
+      description: "법령의 최근 개정 전후 문언(신구조문 대비표)을 보여줍니다. article로 특정 조만 걸러낼 수 있습니다.",
+      inputSchema: { law: lawArg, article: articleArg.optional(), cursor: cursorArg },
+      annotations: READ_ONLY,
+    },
+    guarded(async ({ law, article, cursor }) => {
+      const resolved = await d.statutes.resolve(law);
+      const tree = await d.guidance.revisionComparison(resolved);
+      let keep: ((b: string) => boolean) | undefined;
+      if (article) {
+        const label = articleLabel(needArticle(article)).replace(/\s/g, "");
+        keep = (b) => b.replace(/\s/g, "").includes(label);
+      }
+      const body = outline(tree, keep);
+      if (!body.trim()) throw new LawgoFault("NO_MATCH", `${resolved.name} 신구조문 자료가 없습니다.`);
+      return paged(`■ ${resolved.name} 신구조문 대비 (시행 ${ymd(resolved.effective)})\n\n${body}`, cursor, d.cfg.charBudget);
+    }),
+  );
+}

@@ -1,0 +1,9 @@
+# mcp.tax2.ai → tax2ai-mcp 컨테이너 (TLS 자동 발급)
+mcp.tax2.ai {
+	encode gzip
+	reverse_proxy /mcp* tax2ai-mcp:8787
+	reverse_proxy /healthz tax2ai-mcp:8787
+	root * /srv/public
+	try_files {path} {path}.html
+	file_server
+}

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "tax2ai": {
+      "command": "node",
+      "args": ["dist/index.js"],
+      "env": { "LAWGO_OC": "${LAWGO_OC}" }
+    }
+  }
+}

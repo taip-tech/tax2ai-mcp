@@ -1,0 +1,13 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "tax2ai",
+  "description": "TAX2.AI 세무사 실무 도구 모음",
+  "owner": { "name": "TAIP Technologies" },
+  "plugins": [
+    {
+      "name": "tax2ai",
+      "source": "./plugin",
+      "description": "TAX2.AI 세무 법령 MCP 연결 + /semu 세무 검토 스킬 + 실무 서브에이전트 5종"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "name": "tax2ai",
+  "version": "0.3.0",
+  "description": "세무사 실무용 법령·결정례 조회(TAX2.AI MCP, 원천: 법제처 국가법령정보)와 근거 기반 세무 검토 스킬",
+  "author": {
+    "name": "TAIP Technologies"
+  },
+  "homepage": "https://tax2.ai",
+  "userConfig": {
+    "lawgoOc": {
+      "type": "string",
+      "title": "법제처 OC (선택)",
+      "description": "open.law.go.kr에서 발급받은 본인 OPEN API OC 값. 비워 두면 TAX2.AI 공용 키로 동작하며 하루 사용량 제한이 있을 수 있습니다.",
+      "sensitive": true,
+      "default": ""
+    }
+  },
+  "license": "MIT",
+  "privacyPolicyUrl": "https://mcp.tax2.ai/privacy",
+  "icon": ".claude-plugin/icon.png"
+}
