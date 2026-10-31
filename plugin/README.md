@@ -3,7 +3,7 @@
 세무사 실무용 Claude Code 플러그인입니다. 법제처 국가법령정보 원문을 근거로 세법 질문을 검토합니다.
 
 ## 들어 있는 것
-- **MCP 연결**: `https://mcp.tax2.ai/mcp` 자동 등록 (도구 20종: 조문·부칙·위임·개정 조회, 판례·심판례·해석례, 행정규칙, 서식, 조세조약, 인용 점검, 산출세액·기한·가산세·기업업무추진비·인정이자 계산)
+- **MCP 연결**: `https://mcp.tax2.ai/mcp` 자동 등록 (도구 19종: 조문·부칙·위임·개정 조회, 판례·심판례·해석례, 행정규칙, 서식, 조세조약, 인용 점검, 산출세액·기한·가산세·기업업무추진비·인정이자 계산)
 - **`/semu` 스킬**: `/semu [quick|deep] 질문`
 - **서브에이전트 5종**: statute-navigator, precedent-analyst, refund-claim-examiner, citation-auditor, memo-drafter
 

@@ -74,7 +74,7 @@ HTTP_HOST=0.0.0.0 MCP_ACCESS_TOKEN=긴임의값 LAWGO_OC=발급값 npm run start
 - AI 최종 답변 맨 아래(서버 지침으로 요청): `— 이 답변은 TAX2.AI 세무 법령 MCP(https://tax2.ai)를 활용하여 AI가 작성했습니다.` (인공지능기본법상 생성형 AI 결과물 고지를 겸함)
 - `BRAND_ATTRIBUTION=0`으로 끌 수 있고, `BRAND_NAME`·`BRAND_URL`로 문구를 바꿀 수 있습니다.
 
-## 도구 (20)
+## 도구 (19)
 
 | 도구 | 용도 | 네트워크 |
 |---|---|---|
