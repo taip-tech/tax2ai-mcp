@@ -91,13 +91,27 @@ Referer를 법제처 자신의 도메인(law.go.kr)으로 꾸며 등록 확인�
 인스턴스가 여러 개인 환경(Vercel)에서는 일일 한도와 분당 제한이 인스턴스마다 따로 셉니다.
 
 ## 7. 사용자 연결 안내 (서비스 페이지용 문구)
-- **Claude (웹/데스크톱)**: 설정 → 커넥터 → 사용자 지정 커넥터 추가 → URL `https://mcp.tax2.ai/mcp` → 인증 **"로그인 없음"** 선택 (본인 키: 신청 정보에 `mcp.tax2.ai` 등록 후 `https://mcp.tax2.ai/mcp?oc=본인OC`)
+- **Claude (웹/데스크톱)**: 설정 → 커넥터 → 사용자 지정 커넥터 추가 → URL `https://mcp.tax2.ai/mcp` → 연결 → TAX2 로그인 → 허용 (`AUTH_MODE=none`으로 운영할 때는 인증 "로그인 없음" 선택) (본인 키: 신청 정보에 `mcp.tax2.ai` 등록 후 `https://mcp.tax2.ai/mcp?oc=본인OC`)
 - **Claude Code 플러그인 (권장)**: `/plugin marketplace add taip-tech/tax2ai-mcp` → `/plugin install tax2ai@tax2ai` (설치 시 OC 입력)
 - **Claude Code 수동 등록**: `claude mcp add --transport http tax2ai https://mcp.tax2.ai/mcp --header "X-Lawgo-OC: 본인OC"`
 - **원격 HTTP 미지원 클라이언트**: `npx mcp-remote https://mcp.tax2.ai/mcp --header "X-Lawgo-OC: 본인OC"`
 - **로컬 설치(stdio)**: 본인 키를 `LAWGO_OC` 환경변수에 넣습니다. 이 경우 본인 PC(또는 서버)의 IP를 법제처에 등록합니다.
 
-## 8. 출처 표기 (Powered by)
+## 8. 사용자 로그인 (OAuth 2.1)
+
+`AUTH_MODE=oauth`이면 Claude 커넥터 연결 시 TAX2 계정(카카오) 로그인을 거칩니다.
+
+| 구성 | 위치 |
+|---|---|
+| 인증 서버 | TAX2 플랫폼 Supabase (`OAUTH_ISSUER=https://pseexjrsrgmmjdadoyjk.supabase.co/auth/v1`) |
+| 동의 화면 | `https://www.tax2.ai/oauth/consent` (TAX2_AI 저장소 `src/app/oauth/consent`) |
+| MCP 서버 역할 | 보호 자원 메타데이터 제공, 401 안내, JWKS로 토큰 검증 |
+
+Supabase 설정: Authentication → OAuth Server 켜기, Authorization path `/oauth/consent`, Dynamic client registration 켜기, Site URL `https://www.tax2.ai`.
+
+검증 규칙: 발급자(issuer)·서명(ES256/RS256)·만료, OAuth로 발급된 토큰(`client_id` 클레임)만 허용. Supabase 토큰의 `aud`는 기본 `authenticated`이므로, 대상까지 묶으려면 액세스 토큰 훅으로 `aud`를 `https://mcp.tax2.ai/mcp`로 지정하고 `OAUTH_AUDIENCE`를 설정합니다.
+
+## 9. 출처 표기 (Powered by)
 | 위치 | 내용 | 끄는 법 |
 |---|---|---|
 | 도구 응답 끝 | `Powered by TAX2.AI 세무 법령 MCP · 원문 출처: 법제처 국가법령정보센터` | `BRAND_ATTRIBUTION=0` |
@@ -106,7 +120,7 @@ Referer를 법제처 자신의 도메인(law.go.kr)으로 꾸며 등록 확인�
 
 서버 지침은 AI 클라이언트에 대한 **요청**입니다. 대부분 따르지만 클라이언트나 사용자 설정에 따라 생략될 수 있습니다. 도구 응답 끝의 표기는 항상 붙습니다.
 
-## 9. 운영 점검
+## 10. 운영 점검
 - `/healthz`의 `keyConfigured: true` 확인
 - 법제처 일일 호출량은 서버 OC 하나로 합산되므로, 사용량이 늘면 `RATE_LIMIT_PER_MIN`과 캐시 TTL을 조정하세요.
 - 로그에는 요청 본문(사용자 원고)을 남기지 않습니다.
