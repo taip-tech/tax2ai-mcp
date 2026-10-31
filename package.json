@@ -1,12 +1,12 @@
 {
   "name": "tax2ai-mcp",
   "version": "0.1.0",
-  "main": "dist/index.js",
+  "main": "dist/cli.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "tsx src/index.ts",
-    "start": "node dist/index.js",
-    "start:http": "node dist/index.js --http",
+    "dev": "tsx src/cli.ts",
+    "start": "node dist/cli.js",
+    "start:http": "node dist/cli.js --http",
     "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
@@ -31,7 +31,7 @@
   },
   "type": "module",
   "bin": {
-    "tax2ai-mcp": "dist/index.js"
+    "tax2ai-mcp": "dist/cli.js"
   },
   "engines": {
     "node": ">=20"

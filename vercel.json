@@ -18,5 +18,6 @@
       "destination": "/api/mcp?health=1"
     }
   ],
-  "cleanUrls": true
+  "cleanUrls": true,
+  "framework": null
 }

@@ -151,7 +151,9 @@ export class LawgoClient {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), this.cfg.timeoutMs);
       try {
-        const res = await this.fetcher(url, { signal: ctrl.signal, headers: { Accept: "application/json" } });
+        const headers: Record<string, string> = { Accept: "application/json" };
+        if (this.cfg.upstreamReferer) headers.Referer = this.cfg.upstreamReferer;
+        const res = await this.fetcher(url, { signal: ctrl.signal, headers });
         if (res.ok) return await res.text();
         const fault = new LawgoFault("UPSTREAM_DOWN", `법제처 응답 코드 ${res.status}`);
         if (res.status < 500) throw fault; // 4xx는 재시도해도 같은 결과

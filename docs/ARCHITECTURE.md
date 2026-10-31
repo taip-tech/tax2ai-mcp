@@ -4,7 +4,7 @@
 
 | 계층 | 경로 | 역할 | 외부 의존 |
 |---|---|---|---|
-| 진입점 | `src/index.ts` | stdio / Streamable HTTP(무상태) 선택, 토큰 인증, `/healthz` | MCP SDK |
+| 진입점 | `src/cli.ts` | stdio / Streamable HTTP(무상태) 선택, 토큰 인증, `/healthz` | MCP SDK |
 | 서버 조립 | `src/server.ts` | 도구·프롬프트 등록, 서버 지침 | – |
 | 도구 | `src/tools/*` | 입력 스키마(zod), 응답 포맷, 오류→MCP 변환, 분할 응답 | – |
 | 도메인 | `src/domain/*` | 약칭 사전, 인용 파서, 세율표, 기한 계산 | 없음 (순수 함수) |

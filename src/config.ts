@@ -32,6 +32,8 @@ export interface Settings {
   requireUserOc: boolean;
   /** 연결 주소 쿼리(?oc=)로 사용자 OC 받기 허용. URL은 접근 로그에 남을 수 있음 */
   allowQueryOc: boolean;
+  /** 법제처 호출 시 보낼 Referer. 신청 정보에 등록한 도메인과 맞춰야 IP가 바뀌는 환경(Vercel)에서도 통과 */
+  upstreamReferer: string;
   /** 서버 공용 키의 하루 업스트림 호출 한도 (0=무제한) */
   serverKeyDailyLimit: number;
   /** 브라우저 Origin 허용 목록. 비우면 Origin 헤더가 있는 요청을 막는다. "*"는 전부 허용 */
@@ -66,6 +68,7 @@ export function loadSettings(env: Env = process.env): Settings {
     attribution: flag(env.BRAND_ATTRIBUTION, true),
     requireUserOc: flag(env.REQUIRE_USER_OC, false),
     allowQueryOc: flag(env.ALLOW_QUERY_OC, true),
+    upstreamReferer: env.LAWGO_REFERER ?? new URL(env.PUBLIC_ENDPOINT ?? "https://mcp.tax2.ai/mcp").origin,
     serverKeyDailyLimit: Math.max(0, Math.floor(Number(env.SERVER_KEY_DAILY_LIMIT ?? 0)) || 0),
     allowedOrigins: (env.ALLOWED_ORIGINS ?? "")
       .split(",")

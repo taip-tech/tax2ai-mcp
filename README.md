@@ -46,7 +46,7 @@ cp .env.example .env   # LAWGO_OC 입력
 
 또는 전역 등록:
 ```bash
-claude mcp add tax2ai --env LAWGO_OC=발급값 -- node /절대경로/tax2ai_MCP/dist/index.js
+claude mcp add tax2ai --env LAWGO_OC=발급값 -- node /절대경로/tax2ai_MCP/dist/cli.js
 ```
 
 ### Claude Desktop 연결
@@ -55,7 +55,7 @@ claude mcp add tax2ai --env LAWGO_OC=발급값 -- node /절대경로/tax2ai_MCP/
   "mcpServers": {
     "tax2ai": {
       "command": "node",
-      "args": ["/절대경로/tax2ai_MCP/dist/index.js"],
+      "args": ["/절대경로/tax2ai_MCP/dist/cli.js"],
       "env": { "LAWGO_OC": "발급값" }
     }
   }

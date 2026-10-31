@@ -1,4 +1,4 @@
-// Streamable HTTP(무상태) 요청 처리기. 자체 서버(index.ts --http)와 Vercel 함수(api/mcp.js)가 함께 쓴다.
+// Streamable HTTP(무상태) 요청 처리기. 자체 서버(cli.ts --http)와 Vercel 함수(api/mcp.js)가 함께 쓴다.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { timingSafeEqual } from "node:crypto";
