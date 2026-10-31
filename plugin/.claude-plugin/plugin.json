@@ -17,5 +17,6 @@
   },
   "license": "MIT",
   "privacyPolicyUrl": "https://mcp.tax2.ai/privacy",
-  "icon": ".claude-plugin/icon.png"
+  "icon": ".claude-plugin/icon.png",
+  "repository": "https://github.com/taip-tech/tax2ai-mcp"
 }

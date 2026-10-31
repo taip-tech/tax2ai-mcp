@@ -19,7 +19,7 @@ claude mcp add --transport http tax2ai https://mcp.tax2.ai/mcp --header "X-Lawgo
 ### Claude Code 플러그인 (권장)
 MCP 연결, `/semu` 검토 스킬, 실무 서브에이전트 5종을 한 번에 설치합니다. 설치할 때 본인 법제처 OC를 선택 입력합니다(민감 정보로 저장).
 ```
-/plugin marketplace add <owner>/<repo>
+/plugin marketplace add taip-tech/tax2ai-mcp
 /plugin install tax2ai@tax2ai
 ```
 사용: `/semu 2021 사업연도 법인세 경정청구 기한은?` · `/semu deep 대표이사 가지급금 인정이자와 손금불산입 범위`

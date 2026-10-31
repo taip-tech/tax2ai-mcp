@@ -90,7 +90,7 @@ Caddy가 TLS 인증서를 자동으로 발급합니다.
 
 ## 7. 사용자 연결 안내 (서비스 페이지용 문구)
 - **Claude (웹/데스크톱)**: 설정 → 커넥터 → 사용자 지정 커넥터 추가 → URL `https://mcp.tax2.ai/mcp` (본인 키: `https://mcp.tax2.ai/mcp?oc=본인OC`)
-- **Claude Code 플러그인 (권장)**: `/plugin marketplace add <owner>/<repo>` → `/plugin install tax2ai@tax2ai` (설치 시 OC 입력)
+- **Claude Code 플러그인 (권장)**: `/plugin marketplace add taip-tech/tax2ai-mcp` → `/plugin install tax2ai@tax2ai` (설치 시 OC 입력)
 - **Claude Code 수동 등록**: `claude mcp add --transport http tax2ai https://mcp.tax2.ai/mcp --header "X-Lawgo-OC: 본인OC"`
 - **원격 HTTP 미지원 클라이언트**: `npx mcp-remote https://mcp.tax2.ai/mcp --header "X-Lawgo-OC: 본인OC"`
 - **로컬 설치(stdio)**: 본인 키를 `LAWGO_OC` 환경변수에 넣습니다. 이 경우 본인 PC(또는 서버)의 IP를 법제처에 등록합니다.

@@ -42,5 +42,9 @@
     "README.md",
     "LICENSE",
     "NOTICE.md"
-  ]
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/taip-tech/tax2ai-mcp.git"
+  }
 }

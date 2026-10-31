@@ -11,7 +11,7 @@ AI(Claude)가 법제처 원문을 직접 찾아보고 근거 조문·결정례�
 
 ## 2. Claude Code 사용자
 ```
-/plugin marketplace add <owner>/<repo>
+/plugin marketplace add taip-tech/tax2ai-mcp
 /plugin install tax2ai@tax2ai
 ```
 설치 후 `/semu 질문` 으로 사용합니다. 깊은 검토는 `/semu deep 질문`.

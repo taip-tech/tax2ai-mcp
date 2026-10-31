@@ -9,7 +9,7 @@
 
 ## 설치
 ```
-/plugin marketplace add <owner>/<repo>
+/plugin marketplace add taip-tech/tax2ai-mcp
 /plugin install tax2ai@tax2ai
 ```
 설치할 때 법제처 OC를 물어봅니다. 비워 두면 공용 키로 동작합니다(하루 사용량 제한이 있을 수 있음).
