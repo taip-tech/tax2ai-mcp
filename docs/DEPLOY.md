@@ -111,6 +111,14 @@ Supabase 설정: Authentication → OAuth Server 켜기, Authorization path `/oa
 
 검증 규칙: 발급자(issuer)·서명(ES256/RS256)·만료, OAuth로 발급된 토큰(`client_id` 클레임)만 허용. Supabase 토큰의 `aud`는 기본 `authenticated`이므로, 대상까지 묶으려면 액세스 토큰 훅으로 `aud`를 `https://mcp.tax2.ai/mcp`로 지정하고 `OAUTH_AUDIENCE`를 설정합니다.
 
+### 사무소 프로필 저장소
+`office_profile` 도구는 로그인 사용자별로 사무소 정보를 저장합니다. 서비스 키 없이 **사용자 토큰 + 공개(anon) 키**로 Supabase REST에 접근하고, RLS가 본인 행만 허용합니다.
+
+1. Supabase SQL Editor에서 `deploy/supabase/mcp_office_profiles.sql` 실행
+2. Vercel 환경변수 `SUPABASE_ANON_KEY` (플랫폼의 `NEXT_PUBLIC_SUPABASE_ANON_KEY`와 같은 값) 설정 후 재배포
+
+로그인 없는 공개 모드(`AUTH_MODE=none`)에서는 저장하지 않고, 로컬 stdio 실행은 `PROFILE_FILE`에 저장합니다. 고객 정보는 저장하지 않습니다.
+
 ## 9. 출처 표기 (Powered by)
 | 위치 | 내용 | 끄는 법 |
 |---|---|---|

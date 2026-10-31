@@ -76,7 +76,7 @@ HTTP_HOST=0.0.0.0 MCP_ACCESS_TOKEN=긴임의값 LAWGO_OC=발급값 npm run start
 - AI 최종 답변 맨 아래(서버 지침으로 요청): `— 이 답변은 TAX2.AI 세무 법령 MCP(https://tax2.ai)를 활용하여 AI가 작성했습니다.` (인공지능기본법상 생성형 AI 결과물 고지를 겸함)
 - `BRAND_ATTRIBUTION=0`으로 끌 수 있고, `BRAND_NAME`·`BRAND_URL`로 문구를 바꿀 수 있습니다.
 
-## 도구 (19)
+## 도구 (23)
 
 | 도구 | 용도 | 네트워크 |
 |---|---|---|
@@ -99,11 +99,17 @@ HTTP_HOST=0.0.0.0 MCP_ACCESS_TOKEN=긴임의값 LAWGO_OC=발급값 npm run start
 | `entertainment_limit` | 기업업무추진비 한도·한도초과액 (2020~2026 개시) | – |
 | `deemed_interest` | 가지급금 적수·인정이자, 5%·3억원 기준 판정 | – |
 | `find_treaty` | 조세조약 검색·본문 (키워드 필터) | ● |
+| `office_profile` | 사무소 정보(사무소명·대표세무사·연락처·자료 제출 방법·말투) 등록·조회. 로그인 계정별 저장 | – |
+| `draft_document_request` | 세목별 신고 자료요청문 (카톡·이메일·공문). 서류 체크리스트·신고기한·자료 마감일 자동 | – |
+| `draft_job_posting` | 세무사무소 채용공고 (근무세무사·사무장·경력·신입·단기) + 법률 점검 | ● |
+| `check_job_posting` | 기존 공고 문구의 연령·성별·신체·개인정보·무급수습 표현과 최저임금 점검 (근거 조문 원문 확인) | ● |
+
+필수 정보가 빠지면 사무소 도구는 `[NEEDS_INPUT]` 객관식 질문 목록을 돌려주고, AI가 사용자에게 선택지로 보여 준 뒤 고른 값으로 다시 호출합니다.
 
 긴 응답은 `[MORE] … cursor=N` 안내가 붙으며, 같은 인자에 `cursor`를 넣어 이어받습니다.
 
-## 프롬프트 (3)
-`refund_claim_review`(경정청구 검토) · `opinion_citation_audit`(의견서 인용 점검) · `client_question_memo`(고객 질의 답변 메모)
+## 프롬프트 (5)
+`refund_claim_review`(경정청구 검토) · `opinion_citation_audit`(의견서 인용 점검) · `client_question_memo`(고객 질의 답변 메모) · `document_request`(신고 자료요청문) · `job_posting`(채용공고 작성)
 
 ## 서브에이전트 (`.claude/agents/`)
 

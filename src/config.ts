@@ -1,5 +1,8 @@
 // 환경변수 → 런타임 설정. 모든 값은 기동 시 한 번만 읽는다.
 
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 type Env = Record<string, string | undefined>;
 
 function num(env: Env, name: string, fallback: number): number {
@@ -48,6 +51,12 @@ export interface Settings {
   accessLog: boolean;
   /** 도구 응답·최종 답변에 출처(Powered by) 표기 */
   attribution: boolean;
+  /** 사무소 프로필 저장소(Supabase REST). 비우면 OAuth issuer의 origin */
+  supabaseUrl: string;
+  /** Supabase 공개(anon/publishable) 키. 로그인 사용자 토큰과 함께 써서 RLS로 본인 행만 접근 */
+  supabaseAnonKey: string;
+  /** 로컬(stdio) 실행 시 사무소 프로필 파일 경로 */
+  profileFile: string;
 }
 
 const flag = (v: string | undefined, fallback: boolean) =>
@@ -84,5 +93,8 @@ export function loadSettings(env: Env = process.env): Settings {
       .map((o) => o.trim().replace(/\/+$/, ""))
       .filter(Boolean),
     accessLog: flag(env.ACCESS_LOG, false),
+    supabaseUrl: (env.SUPABASE_URL ?? (env.OAUTH_ISSUER ? new URL(env.OAUTH_ISSUER).origin : "")).replace(/\/+$/, ""),
+    supabaseAnonKey: (env.SUPABASE_ANON_KEY ?? "").trim(),
+    profileFile: env.PROFILE_FILE ?? join(homedir(), ".tax2ai", "office-profile.json"),
   };
 }

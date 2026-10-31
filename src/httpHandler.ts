@@ -16,6 +16,7 @@ import {
 } from "./oauth.js";
 import { buildServer, SERVER_NAME, SERVER_VERSION } from "./server.js";
 import { openDesks, type Desks } from "./tools/context.js";
+import { runAsUser } from "./office/caller.js";
 
 const MAX_BODY = 1_000_000;
 const MCP_PATHS = new Set(["/mcp", "/api/mcp"]);
@@ -104,7 +105,7 @@ function reply(res: ServerResponse, status: number, body: unknown): void {
 
 export type McpHttpHandler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 
-export function createMcpHandler(cfg: Settings, desks: Desks = openDesks(cfg), verifier?: TokenVerifier): McpHttpHandler {
+export function createMcpHandler(cfg: Settings, desks: Desks = openDesks(cfg, undefined, true), verifier?: TokenVerifier): McpHttpHandler {
   // desks(캐시 포함)는 요청 간 공유
   const quota = new MinuteQuota(cfg.ratePerMinute);
   const oauth = cfg.authMode === "oauth";
@@ -174,6 +175,7 @@ export function createMcpHandler(cfg: Settings, desks: Desks = openDesks(cfg), v
     }
     if (!MCP_PATHS.has(path)) return reply(res, 404, { error: "not found" });
     let caller: Caller | undefined;
+    let bearer: string | undefined;
     if (verify) {
       const auth = String(req.headers.authorization ?? "");
       const m = /^Bearer\s+(.+)$/i.exec(auth);
@@ -182,7 +184,8 @@ export function createMcpHandler(cfg: Settings, desks: Desks = openDesks(cfg), v
         return reply(res, 401, { error: "login_required", message: `${cfg.brandName} 로그인이 필요합니다.` });
       }
       try {
-        caller = await verify(m[1].trim());
+        bearer = m[1].trim();
+        caller = await verify(bearer);
       } catch (err) {
         const rejected = err instanceof TokenRejected ? err : undefined;
         res.setHeader("WWW-Authenticate", bearerChallenge(cfg, { code: "invalid_token", description: rejected?.headerHint ?? "invalid token" }));
@@ -211,7 +214,8 @@ export function createMcpHandler(cfg: Settings, desks: Desks = openDesks(cfg), v
         void server.close();
       });
       await server.connect(transport);
-      await runWithUserKey(oc, () => transport.handleRequest(req, res, body));
+      const user = caller && bearer ? { userId: caller.userId, token: bearer } : undefined;
+      await runAsUser(user, () => runWithUserKey(oc, () => transport.handleRequest(req, res, body)));
     } catch (err) {
       if (!res.headersSent) {
         reply(res, 400, { jsonrpc: "2.0", error: { code: -32700, message: err instanceof Error ? err.message : "bad request" }, id: null });

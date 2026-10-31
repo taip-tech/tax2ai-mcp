@@ -101,9 +101,12 @@ test("도구 목록과 프롬프트 노출", async () => {
   const tools = (await client.listTools()).tools.map((t) => t.name).sort();
   assert.deepEqual(tools, [
     "build_issue_brief",
+    "check_job_posting",
     "check_references",
     "compare_revision",
     "deemed_interest",
+    "draft_document_request",
+    "draft_job_posting",
     "entertainment_limit",
     "estimate_penalty",
     "estimate_tax",
@@ -113,6 +116,7 @@ test("도구 목록과 프롬프트 노출", async () => {
     "find_rulings",
     "find_statute",
     "find_treaty",
+    "office_profile",
     "read_provision",
     "read_ruling",
     "read_transition_rules",
@@ -122,6 +126,7 @@ test("도구 목록과 프롬프트 노출", async () => {
   ]);
   const prompts = (await client.listPrompts()).prompts.map((p) => p.name);
   assert.ok(prompts.includes("refund_claim_review"));
+  assert.ok(prompts.includes("document_request") && prompts.includes("job_posting"));
 });
 
 test("find_statute: 줄임말 확장", async () => {

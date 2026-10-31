@@ -86,4 +86,49 @@ export function registerWorkflowPrompts(server: McpServer, signature: string | n
           .join("\n"),
       ),
   );
+
+  server.registerPrompt(
+    "document_request",
+    {
+      title: "신고 자료요청문",
+      description: "고객에게 보낼 신고 자료요청문(카톡·이메일·공문)을 객관식으로 골라 가며 작성",
+      argsSchema: { memo: z.string().optional().describe("고객·세목 등 아는 정보 (예: 행복식당 2026년 2기 부가세, 카톡)") },
+    },
+    ({ memo }) =>
+      user(
+        [
+          "고객에게 보낼 신고 자료요청문을 만들어 주세요.",
+          memo ? `아는 정보: ${memo}` : "",
+          "",
+          "1. 아는 정보로 draft_document_request를 먼저 호출합니다.",
+          "2. [NEEDS_INPUT]이 오면 질문을 객관식(선택지)으로 보여 주고, 고른 값으로 다시 호출합니다. 한 번에 모아서 물어보세요.",
+          "3. [문안 시작]~[문안 끝] 부분을 그대로 보여 주고, 고객 사정에 맞게 더하거나 뺄 항목이 있는지 물어봅니다.",
+          "4. 사무소 정보가 비어 있다는 안내가 있으면 office_profile 등록을 제안합니다.",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      ),
+  );
+
+  server.registerPrompt(
+    "job_posting",
+    {
+      title: "채용공고 작성",
+      description: "근무세무사·직원 채용공고를 객관식으로 골라 가며 작성하고 법률 점검까지",
+      argsSchema: { memo: z.string().optional().describe("채용 조건 메모 (예: 경력 직원 1명, 월 280만원, 주5일)") },
+    },
+    ({ memo }) =>
+      user(
+        [
+          "우리 사무소 채용공고를 만들어 주세요.",
+          memo ? `조건 메모: ${memo}` : "",
+          "",
+          "1. 메모의 조건으로 draft_job_posting을 호출합니다.",
+          "2. [NEEDS_INPUT]이 오면 질문을 객관식(선택지)으로 보여 주고, 고른 값으로 다시 호출합니다.",
+          "3. [공고 시작]~[공고 끝] 공고와 법률 점검 결과를 보여 줍니다. 문제가 있으면 고친 공고 전문도 함께 제시합니다.",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      ),
+  );
 }

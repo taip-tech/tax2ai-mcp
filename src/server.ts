@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Settings } from "./config.js";
 import { openDesks, type Desks } from "./tools/context.js";
 import { registerFieldTools } from "./tools/fieldTools.js";
+import { registerOfficeTools } from "./tools/officeTools.js";
 import { registerPracticeTools } from "./tools/practiceTools.js";
 import { setCreditLine } from "./tools/reply.js";
 import { registerResearchTools } from "./tools/researchTools.js";
@@ -9,7 +10,7 @@ import { registerStatuteTools } from "./tools/statuteTools.js";
 import { registerWorkflowPrompts } from "./tools/workflowPrompts.js";
 
 export const SERVER_NAME = "tax2ai-mcp";
-export const SERVER_VERSION = "0.3.0";
+export const SERVER_VERSION = "0.4.0";
 
 /** 최종 답변 맨 아래에 붙일 한 줄 */
 export function answerSignature(cfg: Settings): string {
@@ -31,6 +32,9 @@ function guide(cfg: Settings): string {
     "- 초안 점검: check_references",
     "- 계산(오프라인): estimate_tax, tax_deadline, estimate_penalty, entertainment_limit, deemed_interest",
     "- 국제조세: find_treaty",
+    "- 사무소 업무: office_profile(사무소 정보 등록), draft_document_request(신고 자료요청문), draft_job_posting·check_job_posting(채용공고 작성·법률 점검)",
+    "  도구가 [NEEDS_INPUT]으로 객관식 질문을 돌려주면, 사용자에게 선택지로 보여 주고 고른 값으로 다시 호출하세요. 사용자가 이미 말한 정보는 묻지 마세요.",
+    "  [문안 시작]~[문안 끝], [공고 시작]~[공고 끝] 사이가 고객·지원자에게 보낼 본문입니다. 출처 표기 줄은 본문에 넣지 마세요.",
     "답변에는 근거 조문과 시행일을 함께 적고, 확인되지 않은 내용은 단정하지 마세요.",
   ];
   if (cfg.attribution) {
@@ -55,6 +59,7 @@ export function buildServer(cfgOrDesks: Settings | Desks): McpServer {
   registerResearchTools(server, desks);
   registerPracticeTools(server, desks);
   registerFieldTools(server, desks);
+  registerOfficeTools(server, desks, desks.profiles);
   registerWorkflowPrompts(server, cfg.attribution ? answerSignature(cfg) : null);
   return server;
 }
