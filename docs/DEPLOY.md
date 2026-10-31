@@ -75,7 +75,9 @@ Caddy가 TLS 인증서를 자동으로 발급합니다.
 
 사용자 키는 `X-Lawgo-OC` 헤더 또는 연결 주소의 `?oc=본인OC`로 받습니다. 사용자 키가 오면 서버 키보다 우선합니다. 법령 데이터는 공개 자료라 캐시는 키와 관계없이 공유합니다.
 
-**확인 필요: 사용자 키의 서버 등록 요건.** 법제처는 미등록 상태의 호출에 "서버장비의 IP주소 및 도메인주소를 등록해 주세요"라고 응답합니다. 공개 서버에서 사용자 키가 그대로 통과하는지, 사용자가 자기 신청 정보에 `mcp.tax2.ai`(또는 서버 IP)를 등록해야 하는지는 실제 키 2개(운영자·테스트 사용자)로 확인한 뒤 안내 문구를 확정하세요. 인증이 실패하면 서버가 등록할 도메인을 함께 안내합니다.
+**사용자 키의 등록 요건 (2026-10-31 확인).** 서버는 법제처 호출에 `Referer: https://mcp.tax2.ai`(실제 서비스 도메인)를 보냅니다. 법제처는 키의 신청 정보에 등록된 도메인과 이를 대조하므로, 본인 키를 쓰는 사용자는 자기 신청 정보의 서버 도메인에 `mcp.tax2.ai`를 등록해야 합니다. 운영자 키도 도메인 등록 후에 Vercel에서 통과했습니다. 인증이 실패하면 서버가 등록할 도메인을 함께 안내합니다.
+
+Referer를 법제처 자신의 도메인(law.go.kr)으로 꾸며 등록 확인을 건너뛰는 방식은 법제처의 접근 통제를 우회하는 것이라 쓰지 않습니다.
 
 `?oc=` 방식은 URL이 접근 로그에 남을 수 있습니다. 헤더만 받으려면 `ALLOW_QUERY_OC=0`으로 설정하세요. 다만 Claude 웹·데스크톱의 사용자 지정 커넥터는 주소만 입력받으므로, 그 사용자들에게는 쿼리 방식이 필요합니다.
 
@@ -89,7 +91,7 @@ Caddy가 TLS 인증서를 자동으로 발급합니다.
 인스턴스가 여러 개인 환경(Vercel)에서는 일일 한도와 분당 제한이 인스턴스마다 따로 셉니다.
 
 ## 7. 사용자 연결 안내 (서비스 페이지용 문구)
-- **Claude (웹/데스크톱)**: 설정 → 커넥터 → 사용자 지정 커넥터 추가 → URL `https://mcp.tax2.ai/mcp` (본인 키: `https://mcp.tax2.ai/mcp?oc=본인OC`)
+- **Claude (웹/데스크톱)**: 설정 → 커넥터 → 사용자 지정 커넥터 추가 → URL `https://mcp.tax2.ai/mcp` (본인 키: 신청 정보에 `mcp.tax2.ai` 등록 후 `https://mcp.tax2.ai/mcp?oc=본인OC`)
 - **Claude Code 플러그인 (권장)**: `/plugin marketplace add taip-tech/tax2ai-mcp` → `/plugin install tax2ai@tax2ai` (설치 시 OC 입력)
 - **Claude Code 수동 등록**: `claude mcp add --transport http tax2ai https://mcp.tax2.ai/mcp --header "X-Lawgo-OC: 본인OC"`
 - **원격 HTTP 미지원 클라이언트**: `npx mcp-remote https://mcp.tax2.ai/mcp --header "X-Lawgo-OC: 본인OC"`

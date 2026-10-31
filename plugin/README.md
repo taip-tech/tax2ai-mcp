@@ -12,7 +12,7 @@
 /plugin marketplace add taip-tech/tax2ai-mcp
 /plugin install tax2ai@tax2ai
 ```
-설치할 때 법제처 OC를 물어봅니다. 비워 두면 공용 키로 동작합니다(하루 사용량 제한이 있을 수 있음).
+설치할 때 법제처 OC를 물어봅니다. 비워 두면 공용 키로 동작합니다(하루 사용량 제한이 있을 수 있음). 본인 OC를 넣으려면 먼저 open.law.go.kr 신청 정보의 서버 도메인에 `mcp.tax2.ai`를 등록하세요.
 
 ## 개인정보
 입력한 질문·원고·OC는 저장하지 않습니다. 자세한 내용: https://mcp.tax2.ai/privacy
