@@ -118,17 +118,23 @@ export function createMcpHandler(cfg: Settings, desks: Desks = openDesks(cfg), v
       const t0 = Date.now();
       // 쿼리(?oc=)와 요청 본문은 남기지 않는다. 400 이상이면 서버가 돌려준 오류 문구만 덧붙인다
       let errorHint = "";
+      // SDK 전송 계층은 본문을 write(Buffer)로 보내므로 write·end 양쪽에서 오류 문구를 찾는다
+      const sniff = (chunk: unknown) => {
+        if (errorHint || res.statusCode < 400 || res.statusCode === 401) return;
+        const raw = typeof chunk === "string" ? chunk : chunk instanceof Uint8Array ? Buffer.from(chunk).toString("utf8") : "";
+        const m = /"message"\s*:\s*"([^"]{0,160})/.exec(raw);
+        if (m) errorHint = /Unsupported protocol version/.test(m[1]) ? " — 프로토콜 버전 협상(클라이언트가 지원 버전으로 재연결, 정상)" : ` — ${m[1]}`;
+      };
+      const write = res.write.bind(res) as (...a: unknown[]) => boolean;
       const end = res.end.bind(res) as (...a: unknown[]) => ServerResponse;
-      res.end = ((...args: unknown[]) => {
-        if (res.statusCode >= 400 && res.statusCode !== 401 && typeof args[0] === "string") {
-          const m = /"message"\s*:\s*"([^"]{0,160})/.exec(args[0]);
-          if (m) errorHint = ` — ${m[1]}`;
-        }
-        return end(...args);
-      }) as typeof res.end;
+      res.write = ((...args: unknown[]) => (sniff(args[0]), write(...args))) as typeof res.write;
+      res.end = ((...args: unknown[]) => (sniff(args[0]), end(...args))) as typeof res.end;
       res.on("finish", () => {
         const ver = req.headers["mcp-protocol-version"] ? ` v=${req.headers["mcp-protocol-version"]}` : "";
-        console.error(`[access] ${req.method} ${url.pathname} ${res.statusCode} ${Date.now() - t0}ms${ver}${errorHint}`);
+        // HTTP 모드에서는 stdout이 프로토콜 통로가 아니므로 일반 로그(info)로 남긴다. 5xx만 error
+        const line = `[access] ${req.method} ${url.pathname} ${res.statusCode} ${Date.now() - t0}ms${ver}${errorHint}`;
+        if (res.statusCode >= 500) console.error(line);
+        else console.log(line);
       });
     }
     const origin = req.headers.origin;
