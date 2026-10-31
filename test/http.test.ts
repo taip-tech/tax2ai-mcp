@@ -80,7 +80,10 @@ test("SERVER_KEY_DAILY_LIMIT: 공용 키만 한도 적용, 사용자 키는 통�
   s.close();
 });
 
-test("Origin 허용 목록", async () => {
+test("Origin: 공개 모드는 허용(커넥터), 그 밖엔 허용 목록", async () => {
+  const pub = await start({ LAWGO_OC: "k", PUBLIC_MODE: "1" });
+  assert.equal((await pub.call("/mcp", "가", { origin: "https://claude.ai" })).status, 200);
+  pub.close();
   const blocked = await start({ LAWGO_OC: "k" });
   assert.equal((await blocked.call("/mcp", "가", { origin: "https://evil.example" })).status, 403);
   assert.equal((await blocked.call("/mcp", "가")).status, 200); // 서버 간 호출(Origin 없음)은 통과

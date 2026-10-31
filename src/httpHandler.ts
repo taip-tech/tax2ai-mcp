@@ -70,11 +70,24 @@ function userKey(req: IncomingMessage, url: URL, allowQuery: boolean): string | 
   return OC_PATTERN.test(raw) ? raw : null; // null = 형식 오류
 }
 
-/** 브라우저에서 온 요청(Origin 헤더)은 허용 목록에 있을 때만 받는다 (DNS 리바인딩 방지) */
-function originAllowed(origin: string, allowed: string[]): boolean {
-  if (allowed.includes("*")) return true;
-  return allowed.includes(origin.replace(/\/+$/, ""));
+/**
+ * 브라우저 출처(Origin) 허용 여부.
+ * - ALLOWED_ORIGINS를 지정했으면 그 목록만 (`*`는 전부)
+ * - 지정하지 않았을 때: 공개 모드(토큰 없음)는 지킬 인증 정보가 없으므로 전부 허용
+ *   (Claude 웹·데스크톱 커넥터가 Origin을 붙여 호출함), 그 밖(로컬·토큰 운영)은 DNS 리바인딩 방지를 위해 차단
+ */
+function originAllowed(origin: string, cfg: Settings): boolean {
+  const allowed = cfg.allowedOrigins;
+  if (allowed.length) return allowed.includes("*") || allowed.includes(origin.replace(/\/+$/, ""));
+  return cfg.publicMode && !cfg.accessToken;
 }
+
+const CORS_HEADERS = {
+  "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Accept, Authorization, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID, X-Lawgo-OC",
+  "Access-Control-Expose-Headers": "Mcp-Session-Id, Mcp-Protocol-Version",
+  "Access-Control-Max-Age": "86400",
+};
 
 function reply(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify(body));
@@ -94,8 +107,15 @@ export function createMcpHandler(cfg: Settings, desks: Desks = openDesks(cfg)): 
       res.on("finish", () => console.error(`[access] ${req.method} ${url.pathname} ${res.statusCode} ${Date.now() - t0}ms`));
     }
     const origin = req.headers.origin;
-    if (origin && !originAllowed(origin, cfg.allowedOrigins)) {
-      return reply(res, 403, { error: "이 출처(Origin)에서의 요청은 허용되지 않습니다." });
+    if (origin) {
+      if (!originAllowed(origin, cfg)) return reply(res, 403, { error: "이 출처(Origin)에서의 요청은 허용되지 않습니다." });
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+      for (const [k, v] of Object.entries(CORS_HEADERS)) res.setHeader(k, v);
+    }
+    if (req.method === "OPTIONS") {
+      res.writeHead(204).end();
+      return;
     }
     const path = url.pathname.replace(/\/+$/, "") || "/";
     if (HEALTH_PATHS.has(path) || (path === "/api/mcp" && url.searchParams.has("health"))) {
