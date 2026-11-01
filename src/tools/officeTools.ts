@@ -5,12 +5,15 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
   buildChecklist,
+  industryApplies,
+  industrySection,
   kindLabel,
   REQUEST_KINDS,
   requestDeadline,
   requestSchedule,
   SUBMIT_FORMATS,
   type ClientType,
+  type Industry,
   type RequestKind,
   type SubmitFormat,
   type VatType,
@@ -29,7 +32,19 @@ import {
   type PostingFinding,
 } from "../domain/hiring.js";
 import { parseDay } from "../domain/dueDates.js";
-import { describeProfile, mergeProfile, ProfileUnavailable, type OfficeProfile, type ProfileStore } from "../office/profile.js";
+import {
+  CLIENT_SEGMENTS,
+  describeProfile,
+  MY_ROLES,
+  mergeProfile,
+  OFFICE_SIZES,
+  PRACTICE_AREAS,
+  ProfileUnavailable,
+  type ClientSegment,
+  type OfficeProfile,
+  type OfficeSize,
+  type ProfileStore,
+} from "../office/profile.js";
 import { OFFLINE, READ_ONLY, type Desks } from "./context.js";
 import { needsInput, type Question } from "./intake.js";
 import { guarded, text } from "./reply.js";
@@ -41,7 +56,9 @@ const kday = (iso: string) => {
 };
 const todayIso = () => new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10); // KST
 
-const PROFILE_HINT = "※ office_profile(action=save)로 사무소 정보를 등록하면 [ ] 자리가 자동으로 채워집니다.";
+const PROFILE_HINT =
+  "※ 사무소 정보를 등록하면 [ ] 자리가 자동으로 채워집니다. 대화로 등록(office_profile)하거나 tax2.ai 마이페이지 > 우리 사무소에서 설정하세요 (두 곳은 같은 정보입니다).";
+const keysOf = <T extends Record<string, string>>(o: T) => Object.keys(o) as [keyof T & string, ...(keyof T & string)[]];
 
 async function loadProfileSafe(store: ProfileStore): Promise<{ profile: OfficeProfile; note?: string }> {
   try {
@@ -254,7 +271,7 @@ async function verifyLawRefs(d: Desks, findings: PostingFinding[]): Promise<Map<
   return out;
 }
 
-function reportFindings(findings: PostingFinding[], verified: Map<string, string>): string {
+function reportFindings(findings: PostingFinding[], verified: Map<string, string>, size?: OfficeSize): string {
   if (!findings.length) return "✅ 표현 점검: 연령·성별·신체조건·개인정보·무급수습 관련 문제 표현이 발견되지 않았습니다.";
   const rows = findings.map((f, i) => {
     const r = f.rule;
@@ -264,7 +281,9 @@ function reportFindings(findings: PostingFinding[], verified: Map<string, string
       `   문제 표현: ${f.matches.map((m) => `"${m}"`).join(", ")}`,
       `   고칠 방법: ${r.fix}`,
       `   근거: ${ref}${verified.get(`${r.law}|${r.article}|${r.branch ?? 0}`) ? ` — ${verified.get(`${r.law}|${r.article}|${r.branch ?? 0}`)}` : ""}`,
-      r.scopeNote ? `   적용 범위: ${r.scopeNote}` : "",
+      r.scopeNote
+        ? `   적용 범위: ${r.scopeNote}${size === "large" ? " → 사무소 설정상 30명 이상이므로 적용 대상입니다." : size ? ` → 사무소 설정상 ${OFFICE_SIZES[size]} 규모라 직접 적용 대상은 아니지만 빼는 것을 권장합니다.` : ""}`
+        : "",
     ]
       .filter(Boolean)
       .join("\n");
@@ -275,12 +294,14 @@ function reportFindings(findings: PostingFinding[], verified: Map<string, string
 // ── 등록 ──────────────────────────────────────────────────
 
 export function registerOfficeTools(server: McpServer, d: Desks, store: ProfileStore): void {
+  const webSettings = `${d.cfg.brandUrl.replace(/\/+$/, "")}/mypage/office`;
+
   server.registerTool(
     "office_profile",
     {
       title: "사무소 프로필",
       description:
-        "자료요청문·채용공고에 자동으로 들어갈 사무소 정보(사무소명, 대표세무사, 연락처, 주소, 자료 제출 방법, 자료 마감 기준일수, 말투)를 보거나 저장합니다. 저장할 때는 바꿀 항목만 넣으면 되고, 빈 문자열은 그 항목을 지웁니다. 고객 정보는 저장하지 않습니다.",
+        "자료요청문·채용공고에 자동으로 들어갈 사무소 정보(사무소명, 대표세무사, 연락처, 주소, 자료 제출 방법, 자료 마감 기준일수, 말투)와 사무소 구성(내 역할, 규모, 주력 업무, 주요 고객층)을 보거나 저장합니다. tax2.ai 마이페이지 > 우리 사무소 화면과 같은 정보라 어느 쪽에서 바꿔도 함께 반영됩니다. 저장할 때는 바꿀 항목만 넣으면 되고, 빈 문자열은 그 항목을 지웁니다. 고객 정보는 저장하지 않습니다.",
       inputSchema: {
         action: z.enum(["view", "save"]).default("view"),
         officeName: z.string().max(100).optional(),
@@ -293,6 +314,10 @@ export function registerOfficeTools(server: McpServer, d: Desks, store: ProfileS
         leadDays: z.number().int().min(1).max(60).optional().describe("자료 마감 = 신고기한 며칠 전 (기본 10)"),
         tone: z.enum(["formal", "friendly"]).optional().describe("formal=격식체, friendly=친근체"),
         closingNote: z.string().max(200).optional().describe("메일 맺음 문구"),
+        myRole: z.enum(keysOf(MY_ROLES)).optional().describe("owner=대표세무사, tax_accountant=근무세무사, staff=직원, student=수강생"),
+        officeSize: z.enum(keysOf(OFFICE_SIZES)).optional().describe("solo=1인, small=2~9명, medium=10~29명, large=30명 이상"),
+        practiceAreas: z.array(z.enum(keysOf(PRACTICE_AREAS))).max(4).optional().describe("bookkeeping=기장·신고, corporate_advisory=법인 컨설팅, property_estate=양도·상속·증여, audit_appeal=조사·불복 (빈 배열이면 지움)"),
+        clientSegments: z.array(z.enum(keysOf(CLIENT_SEGMENTS))).max(7).optional().describe("restaurant=음식점, rental=부동산임대, manufacturing=제조·도소매, freelancer=프리랜서, medical=병의원, ecommerce=온라인 판매, construction=건설"),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
@@ -300,11 +325,11 @@ export function registerOfficeTools(server: McpServer, d: Desks, store: ProfileS
       try {
         if (action === "view") {
           const p = await store.load();
-          return text(`■ 사무소 프로필 (저장 위치: ${store.where})\n${describeProfile(p)}${p ? "" : `\n\n${PROFILE_HINT.replace("※ ", "")}`}`);
+          return text(`■ 사무소 프로필 (저장 위치: ${store.where})\n${describeProfile(p)}\n\n웹에서 보기·수정: ${webSettings}${p ? "" : `\n${PROFILE_HINT.replace("※ ", "")}`}`);
         }
         const merged = mergeProfile(await store.load(), fields as OfficeProfile);
         await store.save(merged);
-        return text(`■ 사무소 프로필을 저장했습니다 (저장 위치: ${store.where})\n${describeProfile(merged)}`);
+        return text(`■ 사무소 프로필을 저장했습니다 (저장 위치: ${store.where})\n${describeProfile(merged)}\n\n웹에서도 바로 확인할 수 있습니다: ${webSettings}`);
       } catch (err) {
         if (err instanceof ProfileUnavailable) return text(`[PROFILE_UNAVAILABLE] ${err.message}`);
         throw err;
@@ -332,6 +357,7 @@ export function registerOfficeTools(server: McpServer, d: Desks, store: ProfileS
         diligentFiler: z.boolean().optional().describe("성실신고확인 대상"),
         clientName: z.string().max(60).optional().describe("받는 고객 이름·상호 (저장하지 않음)"),
         requestBy: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("자료 마감일 직접 지정"),
+        industry: z.enum([...keysOf(CLIENT_SEGMENTS), "general"]).optional().describe("고객 업종 (업종별 추가 자료 반영, general=해당 없음)"),
         addItems: z.array(z.string().max(120)).max(20).optional().describe("목록에 더할 항목"),
         removeKeywords: z.array(z.string().max(30)).max(20).optional().describe("이 단어가 들어간 항목은 뺌"),
       },
@@ -363,18 +389,26 @@ export function registerOfficeTools(server: McpServer, d: Desks, store: ProfileS
         }
       }
       if (!a.channel) qs.push({ arg: "channel", ask: "어떤 형식으로 보낼까요?", choices: CHANNELS.map((c) => ({ label: c.label, value: c.value })) });
+      // 사무소 설정의 주요 고객층이 있으면 업종을 물어 업종별 자료를 더한다
+      const { profile, note } = await loadProfileSafe(store);
+      const segments = profile.clientSegments ?? [];
+      if (!a.industry && segments.length && (!kind || industryApplies(kind)))
+        qs.push({ arg: "industry", ask: "이 고객의 업종은? (사무소 설정의 주요 고객층)", choices: [...segments.map((s) => ({ label: CLIENT_SEGMENTS[s], value: s })), { label: "해당 없음·기타", value: "general" }] });
       if (!a.formats?.length) qs.push({ arg: "formats", ask: "고객이 어떤 파일로 보내도 될까요?", multi: true, choices: SUBMIT_FORMATS.map((f) => ({ label: f.label, value: f.value })) });
       if (qs.length) return needsInput("draft_document_request", "자료요청문 작성", qs);
 
       const sched = requestSchedule(kind!, { year: a.year, half: a.half, month: a.month, periodEnd: a.periodEnd, eventDate: a.eventDate }, { vatType: vat, diligentFiler: a.diligentFiler });
       if ("missing" in sched) throw new RangeError(`기간 정보가 부족합니다: ${sched.missing.join(", ")}`);
-      const { profile, note } = await loadProfileSafe(store);
       const lead = profile.leadDays ?? 10;
       const requestBy = a.requestBy ?? requestDeadline(sched.filingDue, lead);
 
       let sections = buildChecklist(kind!, client!, vat!);
       if (a.removeKeywords?.length) {
         sections = sections.map((s) => ({ ...s, items: s.items.filter((i) => !a.removeKeywords!.some((k) => i.includes(k))) })).filter((s) => s.items.length);
+      }
+      if (a.industry && a.industry !== "general") {
+        const extra = industrySection(kind!, a.industry as Industry, CLIENT_SEGMENTS[a.industry as ClientSegment]);
+        if (extra) sections.push(extra);
       }
       if (a.addItems?.length) sections.push({ title: "추가 요청 자료", items: a.addItems });
 
@@ -497,7 +531,7 @@ export function registerOfficeTools(server: McpServer, d: Desks, store: ProfileS
           "[공고 끝]",
           "",
           "■ 법률 점검",
-          reportFindings(findings, verified),
+          reportFindings(findings, verified, profile.officeSize),
           wage ? `${wage.ok === false ? "⚠" : wage.ok ? "✅" : "ℹ"} 최저임금: ${wage.message}` : "ℹ 최저임금: 금액이 없어 점검하지 않았습니다.",
           ...extra,
           ...(note ? [note] : []),
@@ -524,6 +558,7 @@ export function registerOfficeTools(server: McpServer, d: Desks, store: ProfileS
       annotations: READ_ONLY,
     },
     guarded(async ({ posting, payUnit, payAmount, monthlyHours, year }) => {
+      const { profile } = await loadProfileSafe(store);
       const findings = scanPosting(posting);
       const verified = findings.length ? await verifyLawRefs(d, findings) : new Map<string, string>();
       const y = year ?? +todayIso().slice(0, 4);
@@ -531,7 +566,7 @@ export function registerOfficeTools(server: McpServer, d: Desks, store: ProfileS
       return text(
         [
           "■ 채용공고 법률 점검",
-          reportFindings(findings, verified),
+          reportFindings(findings, verified, profile.officeSize),
           wage ? `${wage.ok === false ? "⚠" : wage.ok ? "✅" : "ℹ"} 최저임금: ${wage.message}` : "",
           "",
           "고친 공고 전문이 필요하면 문제 표현을 바꾼 버전을 사용자에게 함께 제시하세요.",

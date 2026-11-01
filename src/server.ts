@@ -10,7 +10,7 @@ import { registerStatuteTools } from "./tools/statuteTools.js";
 import { registerWorkflowPrompts } from "./tools/workflowPrompts.js";
 
 export const SERVER_NAME = "tax2ai-mcp";
-export const SERVER_VERSION = "0.4.0";
+export const SERVER_VERSION = "0.4.1";
 
 /** 최종 답변 맨 아래에 붙일 한 줄 */
 export function answerSignature(cfg: Settings): string {

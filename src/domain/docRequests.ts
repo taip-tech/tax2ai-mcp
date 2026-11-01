@@ -337,3 +337,47 @@ export function buildChecklist(kind: RequestKind, client: ClientType = "individu
   if (extra.length) sections[target] = { ...sections[target], items: [...sections[target].items, ...extra] };
   return sections.filter((s) => s.items.length);
 }
+
+/** 고객 업종별로 더 받을 자료. 값은 사무소 프로필의 주요 고객층과 같다. */
+export type Industry = "restaurant" | "rental" | "manufacturing" | "freelancer" | "medical" | "ecommerce" | "construction";
+
+const INDUSTRY_ITEMS: Record<Industry, { vat?: string[]; income?: string[] }> = {
+  restaurant: {
+    vat: ["면세 농·수산물 매입 계산서·영수증 (의제매입세액공제)", "배달앱별 매출·수수료 정산내역", "신용카드 매출전표 발행금액 집계 (카드매출 세액공제)"],
+    income: ["식자재 매입 증빙과 월별 매입 합계", "주방 설비·인테리어 투자 내역"],
+  },
+  rental: {
+    vat: ["임차인별 보증금·월세·관리비 현황 (부동산임대공급가액명세서용)", "임대차계약 신규·변경·종료 내역", "임대 부동산의 취득·자본적 지출 증빙"],
+    income: ["임대 부동산별 대출 이자 내역", "임대 부동산 재산세·보험료·수선비 증빙"],
+  },
+  manufacturing: {
+    vat: ["원재료·상품 매입 세금계산서 (종이 발행분)", "수출 실적 증빙 (해당 시)"],
+    income: ["기말 재고자산 실사표", "원재료 수불 내역", "외주 가공비 지급 내역"],
+  },
+  freelancer: {
+    vat: [],
+    income: ["사업소득 원천징수영수증·지급명세서 (3.3% 공제분)", "업무용 장비·교통비·통신비 등 경비 증빙", "작업실·사무실 임대료 내역"],
+  },
+  medical: {
+    vat: ["비급여(과세) 진료 매출 구분 내역 (미용·성형 목적 등)", "의료장비 리스·구입 계약서"],
+    income: ["건강보험공단 요양급여 지급 내역", "비급여 진료 현금영수증 발급 내역", "의료장비 리스료·감가상각 자산 목록"],
+  },
+  ecommerce: {
+    vat: ["오픈마켓·자사몰·PG사별 정산내역", "해외 판매(수출)·구매대행 매출 구분 자료", "광고비(키워드·SNS) 결제 내역"],
+    income: ["택배비·포장재 등 판매 부대비용 증빙", "재고 현황"],
+  },
+  construction: {
+    vat: ["공사 도급계약서와 기성·준공 내역", "하도급 세금계산서와 지급 내역"],
+    income: ["현장별 공사 원가 집계", "건설기계·장비 임차료 내역", "일용직 노무비 지급명세"],
+  },
+};
+
+const VAT_KINDS: RequestKind[] = ["vat_final", "vat_preliminary"];
+const INCOME_KINDS: RequestKind[] = ["personal_income", "corporate"];
+export const industryApplies = (kind: RequestKind) => VAT_KINDS.includes(kind) || INCOME_KINDS.includes(kind);
+
+export function industrySection(kind: RequestKind, industry: Industry, label: string): ChecklistSection | undefined {
+  const set = INDUSTRY_ITEMS[industry];
+  const items = VAT_KINDS.includes(kind) ? set.vat : INCOME_KINDS.includes(kind) ? [...(set.vat ?? []), ...(set.income ?? [])] : undefined;
+  return items?.length ? { title: `${label} 업종 추가 자료`, items } : undefined;
+}

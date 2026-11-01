@@ -10,6 +10,29 @@ import { currentUser } from "./caller.js";
 
 export type Tone = "formal" | "friendly";
 
+// 사무소 구성 선택지. tax2.ai 웹 설정 화면(src/lib/officeProfile.ts)과 값을 맞춘다.
+export const MY_ROLES = { owner: "대표세무사", tax_accountant: "근무세무사", staff: "직원", student: "수강생·예비 세무사" } as const;
+export const OFFICE_SIZES = { solo: "1인", small: "2~9명", medium: "10~29명", large: "30명 이상" } as const;
+export const PRACTICE_AREAS = {
+  bookkeeping: "기장·신고대리",
+  corporate_advisory: "법인 컨설팅",
+  property_estate: "양도·상속·증여",
+  audit_appeal: "조사·불복",
+} as const;
+export const CLIENT_SEGMENTS = {
+  restaurant: "음식점",
+  rental: "부동산임대",
+  manufacturing: "제조·도소매",
+  freelancer: "프리랜서·인적용역",
+  medical: "병의원",
+  ecommerce: "온라인 판매",
+  construction: "건설",
+} as const;
+export type MyRole = keyof typeof MY_ROLES;
+export type OfficeSize = keyof typeof OFFICE_SIZES;
+export type PracticeArea = keyof typeof PRACTICE_AREAS;
+export type ClientSegment = keyof typeof CLIENT_SEGMENTS;
+
 export interface OfficeProfile {
   officeName?: string;
   representative?: string;
@@ -24,6 +47,10 @@ export interface OfficeProfile {
   tone?: Tone;
   /** 메일·문서 끝에 붙일 맺음 문구 */
   closingNote?: string;
+  myRole?: MyRole;
+  officeSize?: OfficeSize;
+  practiceAreas?: PracticeArea[];
+  clientSegments?: ClientSegment[];
 }
 
 export const PROFILE_FIELDS: Record<keyof OfficeProfile, string> = {
@@ -37,6 +64,18 @@ export const PROFILE_FIELDS: Record<keyof OfficeProfile, string> = {
   leadDays: "자료 마감(신고기한 n일 전)",
   tone: "말투(formal=격식체, friendly=친근체)",
   closingNote: "맺음 문구",
+  myRole: "내 역할",
+  officeSize: "사무소 규모",
+  practiceAreas: "주력 업무",
+  clientSegments: "주요 고객층",
+};
+
+const CHOICES: Partial<Record<keyof OfficeProfile, Record<string, string>>> = {
+  myRole: MY_ROLES,
+  officeSize: OFFICE_SIZES,
+  practiceAreas: PRACTICE_AREAS,
+  clientSegments: CLIENT_SEGMENTS,
+  tone: { formal: "격식체", friendly: "친근체" },
 };
 
 export class ProfileUnavailable extends Error {}
@@ -138,7 +177,10 @@ export function mergeProfile(base: OfficeProfile | undefined, patch: OfficeProfi
   const out: Record<string, unknown> = { ...(base ?? {}) };
   for (const [k, v] of Object.entries(patch)) {
     if (!(k in PROFILE_FIELDS) || v === undefined) continue;
-    if (v === "" || v === null) delete out[k];
+    const allowed = CHOICES[k as keyof OfficeProfile];
+    if (v === "" || v === null || (Array.isArray(v) && !v.length)) delete out[k];
+    else if (Array.isArray(v)) out[k] = [...new Set(v.filter((x) => typeof x === "string" && (!allowed || x in allowed)))];
+    else if (allowed && !(String(v) in allowed)) continue;
     else out[k] = typeof v === "string" ? v.trim().slice(0, 300) : v;
   }
   return out as OfficeProfile;
@@ -148,6 +190,11 @@ export function describeProfile(p: OfficeProfile | undefined): string {
   if (!p || !Object.keys(p).length) return "(등록된 정보 없음)";
   return (Object.keys(PROFILE_FIELDS) as (keyof OfficeProfile)[])
     .filter((k) => p[k] !== undefined && p[k] !== "")
-    .map((k) => `- ${PROFILE_FIELDS[k]}: ${p[k]}`)
+    .map((k) => {
+      const v = p[k];
+      const names = CHOICES[k];
+      const shown = Array.isArray(v) ? v.map((x) => names?.[x] ?? x).join(", ") : names?.[String(v)] ?? v;
+      return `- ${PROFILE_FIELDS[k].replace(/\(.*\)/, "").trim()}: ${shown}`;
+    })
     .join("\n");
 }

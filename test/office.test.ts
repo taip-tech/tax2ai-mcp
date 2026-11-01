@@ -111,3 +111,31 @@ test("도구: 정보가 없으면 객관식 질문, 프로필이 있으면 문�
   assert.match(posting, /\[한빛세무회계\] 신입 직원 채용/);
   assert.match(posting, /문제 표현이 발견되지 않았습니다/);
 });
+
+test("사무소 구성: 허용되지 않은 선택값은 버리고, 고객층·규모가 도구 결과에 반영된다", async () => {
+  const p = mergeProfile({}, { officeSize: "huge", clientSegments: ["restaurant", "nope", "restaurant"], myRole: "owner" } as never);
+  assert.deepEqual(p, { clientSegments: ["restaurant"], myRole: "owner" });
+
+  const dir = await mkdtemp(join(tmpdir(), "tax2ai-office-"));
+  const server = buildServer(loadSettings({ PROFILE_FILE: join(dir, "p.json") }));
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await server.connect(a);
+  const client = new Client({ name: "t", version: "1" });
+  await client.connect(b);
+  const call = async (name: string, args: Record<string, unknown>) =>
+    ((await client.callTool({ name, arguments: args })).content as { text: string }[]).map((c) => c.text).join("\n");
+
+  await call("office_profile", { action: "save", officeSize: "large", clientSegments: ["restaurant", "rental"] });
+  const view = await call("office_profile", {});
+  assert.match(view, /사무소 규모: 30명 이상/);
+  assert.match(view, /주요 고객층: 음식점, 부동산임대/);
+  assert.match(view, /mypage\/office/);
+
+  const ask = await call("draft_document_request", { kind: "vat_final", clientType: "individual", vatType: "general", year: 2026, half: 1, channel: "kakao", formats: ["pdf"] });
+  assert.match(ask, /인자 `industry`[\s\S]*음식점[\s\S]*부동산임대[\s\S]*general/);
+  const draft = await call("draft_document_request", { kind: "vat_final", clientType: "individual", vatType: "general", year: 2026, half: 1, channel: "kakao", formats: ["pdf"], industry: "restaurant" });
+  assert.match(draft, /음식점 업종 추가 자료[\s\S]*의제매입/);
+
+  const check = await call("check_job_posting", { posting: "이력서에 사진 부착 필수" });
+  assert.match(check, /30명 이상이므로 적용 대상/);
+});
