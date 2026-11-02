@@ -92,7 +92,7 @@ test("수강 기간이 끝난 반: 제출 거절, 교재 읽기도 막힘", asyn
 
 test("차단된 학생은 막히고, 기간 안·로그인 안 함은 그대로", async () => {
   const blocked = new Classroom("https://tax2.ai", "https://db.example", "anon", fakeFetch(true, { blocked: true }).fn);
-  assert.match((await runAsUser({ userId: UID, token: "tok" }, () => blocked.accessEnded())) ?? "", /막아/);
+  assert.match((await runAsUser({ userId: UID, token: "tok" }, () => blocked.accessEnded())) ?? "", /끊어/);
   const open = new Classroom("https://tax2.ai", "https://db.example", "anon", fakeFetch(true, { until: "2999-01-01T00:00:00Z" }).fn);
   assert.equal(await runAsUser({ userId: UID, token: "tok" }, () => open.accessEnded()), null);
   assert.equal(await open.accessEnded(), null);

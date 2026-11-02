@@ -95,7 +95,7 @@ export class Classroom {
     const cls = await this.rest<{ name: string; access_until?: string | null }[]>(`/rest/v1/learn_classes?select=name,access_until&id=eq.${m.class_id}`, { token: u.token }).catch(() => []);
     const until = cls[0]?.access_until;
     const ended = m.blocked
-      ? "강사가 이 반에서 학습 도구 사용을 막아 두었습니다."
+      ? "강사가 이 반의 학습 연결을 끊어 두었습니다."
       : until && Date.parse(until) <= Date.now()
         ? `이 반의 수강 기간이 ${new Date(until).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}에 끝났습니다.`
         : null;
