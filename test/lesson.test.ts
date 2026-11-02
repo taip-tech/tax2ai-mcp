@@ -64,6 +64,7 @@ test("제출: 사용자 토큰으로 파일 업로드 후 제출물 저장", asy
   assert.equal(row.captures[0].kind, "file");
   assert.deepEqual(row.conversation, [{ role: "user", text: "질문1" }]);
   assert.match(r.id, /^[A-Za-z0-9_-]{6,40}$/);
+  assert.equal(room.attachUrl(r.id), `https://tax2.ai/learn/attach/${r.id}`);
 });
 
 test("허용되지 않은 파일 형식은 거절", async () => {

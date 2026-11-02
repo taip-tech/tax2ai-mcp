@@ -101,6 +101,7 @@ test("도구 목록과 프롬프트 노출", async () => {
   const tools = (await client.listTools()).tools.map((t) => t.name).sort();
   assert.deepEqual(tools, [
     "build_issue_brief",
+    "capture_upload_link",
     "check_job_posting",
     "check_references",
     "compare_revision",

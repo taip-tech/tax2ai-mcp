@@ -102,7 +102,7 @@ export function registerLessonTools(server: McpServer, room: Classroom, charBudg
     {
       title: "학습 결과 제출",
       description:
-        `수강생의 학습 결과를 강사에게 제출합니다(tax2.ai 관리자 > 학습 결과). 수강생이 제출을 요청했을 때만, 보낼 내용을 보여 주고 확인을 받은 뒤 호출하세요. reflection은 수강생 본인의 학습 소감(대신 지어내지 말 것), summary는 이 대화에서 배운 내용·막힌 점 요약, questions는 수강생이 한 핵심 질문, files는 만든 결과물(${RESULT_EXTS.join("·")} 텍스트, 각 1MB 이하). 대화 원문 전체는 보내지 않습니다. 다시 제출하면 새 제출물로 추가됩니다.`,
+        `수강생의 학습 결과를 강사에게 제출합니다(tax2.ai 관리자 > 학습 결과). 수강생이 제출을 요청했을 때만, 보낼 내용을 보여 주고 확인을 받은 뒤 호출하세요. reflection은 수강생 본인의 학습 소감(대신 지어내지 말 것), summary는 이 대화에서 배운 내용·막힌 점 요약, questions는 수강생이 한 핵심 질문, files는 만든 결과물(${RESULT_EXTS.join("·")} 텍스트, 각 1MB 이하). 대화 원문 전체는 보내지 않습니다. 이미지(화면 캡처)는 이 도구로 보낼 수 없으니, 제출 후 돌려주는 '캡처 이미지 추가' 링크를 사용자에게 안내하세요(이미지를 글로 옮겨 파일로 만들지 마세요). 다시 제출하면 새 제출물로 추가됩니다.`,
       inputSchema: {
         lesson: z.string().max(40).describe("교시 (예: 1일차 1교시, day1-session1)"),
         reflection: z.string().min(1).max(5000).describe("수강생의 학습 소감 (수강생 말 그대로)"),
@@ -122,7 +122,32 @@ export function registerLessonTools(server: McpServer, room: Classroom, charBudg
         `✓ ${r.membership.className} 반 강사에게 제출했습니다 — ${l.label} "${l.title}"`,
         `- 제출자: ${r.membership.name}`,
         `- 질문 ${questions?.length ?? 0}개${r.files.length ? ` · 결과 파일 ${r.files.join(", ")}` : ""}`,
+        `- 캡처 이미지 추가: ${room.attachUrl(r.id)}`,
+        "  (대화에 붙인 이미지는 도구로 보낼 수 없습니다. 캡처가 있으면 이 링크를 열어 붙여 넣기(Ctrl+V·⌘V)하라고 사용자에게 링크를 그대로 안내하세요.)",
         "다시 제출하면 새 제출물로 추가됩니다.",
+      ].join("\n"));
+    }),
+  );
+
+  server.registerTool(
+    "capture_upload_link",
+    {
+      title: "캡처 이미지 추가 링크",
+      description:
+        "이미 제출한 학습 결과에 화면 캡처 이미지를 붙일 tax2.ai 링크를 돌려줍니다. 대화에 붙인 이미지는 도구로 직접 보낼 수 없으므로, 사용자가 캡처·이미지를 제출하고 싶어 하면 이 링크를 그대로 안내하세요(링크에서 붙여 넣기 Ctrl+V·⌘V, 끌어 놓기, 파일 선택). 그 교시에 제출물이 없으면 먼저 submit_learning_result로 제출해야 합니다.",
+      inputSchema: {
+        lesson: z.string().max(40).describe("교시 (예: 1일차 1교시, day1-session1)"),
+      },
+      annotations: READ,
+    },
+    safe(async ({ lesson }) => {
+      const l = await room.readLesson(normalizeLessonKey(lesson));
+      const sub = await room.latestSubmission(l.aiLessonId);
+      if (!sub) return text(`[NEEDS_SUBMISSION] ${l.label}에 낸 제출물이 아직 없습니다. 소감을 받아 submit_learning_result로 먼저 제출한 뒤, 돌려받은 캡처 링크를 안내하세요.`);
+      return text([
+        `■ ${l.label} 제출물(${new Date(sub.submittedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })})에 캡처 붙이기`,
+        room.attachUrl(sub.id),
+        "이 링크를 열고 캡처를 붙여 넣기(Ctrl+V·⌘V)하거나 끌어 놓은 뒤 '캡처 제출'을 누르면 강사 화면에 바로 보입니다. tax2.ai에 로그인되어 있어야 합니다.",
       ].join("\n"));
     }),
   );

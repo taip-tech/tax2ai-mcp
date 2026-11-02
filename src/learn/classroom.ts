@@ -95,6 +95,20 @@ export class Classroom {
     return { classId: m.class_id, className: cls[0]?.name ?? "(이름 없음)", name: m.name, org: m.org ?? "" };
   }
 
+  attachUrl(submissionId: string): string {
+    return `${this.siteUrl}/learn/attach/${encodeURIComponent(submissionId)}`;
+  }
+
+  /** 이 교시에 낸 내 최근 제출물 (캡처 추가 링크용) */
+  async latestSubmission(aiLessonId: string): Promise<{ id: string; submittedAt: string } | null> {
+    const u = this.user();
+    const rows = await this.rest<{ id: string; submitted_at: string }[]>(
+      `/rest/v1/learn_submissions?select=id,submitted_at&user_id=eq.${encodeURIComponent(u.userId)}&lesson_id=eq.${encodeURIComponent(aiLessonId)}&order=submitted_at.desc&limit=1`,
+      { token: u.token },
+    );
+    return rows[0] ? { id: rows[0].id, submittedAt: rows[0].submitted_at } : null;
+  }
+
   async join(code: string, name: string, org: string): Promise<Membership> {
     const u = this.user();
     const rows = await this.rest<{ class_id: string; class_name: string }[]>(`/rest/v1/rpc/learn_join`, {
