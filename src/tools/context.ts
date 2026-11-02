@@ -4,6 +4,7 @@ import { GuidanceDesk } from "../lawgo/guidance.js";
 import { RulingDesk } from "../lawgo/rulings.js";
 import { StatuteDesk } from "../lawgo/statutes.js";
 import { openProfileStore, type ProfileStore } from "../office/profile.js";
+import { Classroom } from "../learn/classroom.js";
 
 export interface Desks {
   cfg: Settings;
@@ -12,6 +13,7 @@ export interface Desks {
   rulings: RulingDesk;
   guidance: GuidanceDesk;
   profiles: ProfileStore;
+  classroom: Classroom;
 }
 
 /** remote=true: HTTP 서버(로그인 사용자별 저장), false: 로컬 stdio(파일 저장) */
@@ -23,6 +25,7 @@ export function openDesks(cfg: Settings, api = new LawgoClient(cfg), remote = fa
     rulings: new RulingDesk(api),
     guidance: new GuidanceDesk(api),
     profiles: openProfileStore(cfg, remote),
+    classroom: new Classroom(cfg.brandUrl.replace(/\/+$/, ""), remote && cfg.authMode === "oauth" ? cfg.supabaseUrl : "", cfg.supabaseAnonKey),
   };
 }
 
