@@ -102,3 +102,17 @@ test("수강 끝난 반 참여 코드는 AccessEnded", async () => {
   const room = new Classroom("https://tax2.ai", "https://db.example", "anon", fakeFetch(false, { joinError: "수강 기간이 끝난 반이에요" }).fn);
   await assert.rejects(runAsUser({ userId: UID, token: "tok" }, () => room.join("ABC123", "홍길동", "")), AccessEnded);
 });
+
+test("대화 원문(transcript)을 보내면 질문·답 모두 저장", async () => {
+  const f = fakeFetch(true);
+  const room = new Classroom("https://tax2.ai", "https://db.example", "anon", f.fn);
+  const lesson = await room.readLesson("day1-session1");
+  const r = await runAsUser({ userId: UID, token: "tok" }, () =>
+    room.submit({ lesson, reflection: "배웠다", questions: ["q"], transcript: [{ role: "user", text: "1교시 알려줘" }, { role: "assistant", text: "GIGO 원칙…" }, { role: "user", text: " " }] }),
+  );
+  assert.equal(r.turns, 2);
+  const row = JSON.parse(f.calls.find((c) => c.url.endsWith("/rest/v1/learn_submissions"))!.body!);
+  assert.deepEqual(row.conversation, [{ role: "user", text: "1교시 알려줘" }, { role: "assistant", text: "GIGO 원칙…" }]);
+  assert.equal(row.stats.questions, 1);
+  assert.equal(row.stats.transcript, true);
+});

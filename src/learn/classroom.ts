@@ -1,7 +1,7 @@
 // 강의 교재 읽기 + 반 참여·결과 제출.
 // - 교재: tax2.ai 공개 API(/api/lessons/<slug>) — 교재 화면과 같은 공개 규칙(닫힌 교시는 본문 없음)
 // - 반·제출: Supabase REST/Storage + 로그인 사용자 토큰 → RLS로 본인 것만 쓴다(AI 학습실 반 모드와 같은 테이블)
-// 수강생 대화 원문은 받지 않는다. 수강생이 제출하겠다고 할 때 AI가 정리한 내용만 저장한다.
+// 수강생이 제출하겠다고 할 때만 저장한다. 대화 원문(transcript)은 수강생 AI 앱이 옮겨 적은 것이라 실제 원문과 다를 수 있다.
 
 import { randomBytes } from "node:crypto";
 import { currentUser } from "../office/caller.js";
@@ -20,6 +20,8 @@ export interface LessonDoc {
 /** ended: 수강 기간이 끝났거나 강사가 차단한 경우 그 사유, 아니면 null */
 export interface Membership { classId: string; className: string; name: string; org: string; ended: string | null }
 export interface ResultFile { name: string; content: string }
+export interface TranscriptTurn { role: "user" | "assistant"; text: string }
+export const TRANSCRIPT_MAX_CHARS = 400_000;
 
 /** "1일차 1교시", "day1-session1", "1-1", "보충" → 교시 키 */
 export function normalizeLessonKey(input: string): string {
@@ -139,8 +141,8 @@ export class Classroom {
   }
 
   async submit(input: {
-    lesson: LessonDoc; reflection: string; summary?: string; questions?: string[]; files?: ResultFile[];
-  }): Promise<{ id: string; membership: Membership; files: string[] }> {
+    lesson: LessonDoc; reflection: string; summary?: string; questions?: string[]; files?: ResultFile[]; transcript?: TranscriptTurn[];
+  }): Promise<{ id: string; membership: Membership; files: string[]; turns: number }> {
     const u = this.user();
     const m = await this.membership();
     if (!m) throw new NotInClass();
@@ -163,6 +165,9 @@ export class Classroom {
       captures.push({ path, kind: "file", name: f.name, mediaType, size: bytes.length, label: "claude.ai·ChatGPT에서 제출" });
     }
     const questions = (input.questions ?? []).map((q) => q.trim()).filter(Boolean).slice(0, 50);
+    const transcript = (input.transcript ?? []).map((t) => ({ role: t.role, text: t.text.trim() })).filter((t) => t.text);
+    const total = transcript.reduce((n, t) => n + t.text.length, 0);
+    if (total > TRANSCRIPT_MAX_CHARS) throw new RangeError(`대화 원문이 너무 깁니다(${total.toLocaleString()}자, 최대 ${TRANSCRIPT_MAX_CHARS.toLocaleString()}자). 앞부분을 summary로 줄이고 최근 대화만 transcript로 보내세요.`);
     await this.rest(`/rest/v1/learn_submissions`, {
       method: "POST",
       token: u.token,
@@ -177,12 +182,16 @@ export class Classroom {
         learner: { name: m.name, org: m.org },
         reflection: input.reflection,
         worksheet_text: input.summary ? `■ AI 대화 요약 (수강생의 AI 계정에서 정리)\n\n${input.summary}` : null,
-        conversation: questions.map((text) => ({ role: "user", text })),
+        // 원문이 있으면 원문(질문·답 모두), 없으면 핵심 질문만
+        conversation: transcript.length ? transcript : questions.map((text) => ({ role: "user", text })),
         captures,
-        stats: { questions: questions.length, captures: 0, files: captures.length, via: "mcp" },
+        stats: {
+          questions: transcript.length ? transcript.filter((t) => t.role === "user").length : questions.length,
+          captures: 0, files: captures.length, via: "mcp", transcript: transcript.length > 0,
+        },
       }),
     });
-    return { id, membership: m, files: captures.map((c) => String(c.name)) };
+    return { id, membership: m, files: captures.map((c) => String(c.name)), turns: transcript.length };
   }
 }
 

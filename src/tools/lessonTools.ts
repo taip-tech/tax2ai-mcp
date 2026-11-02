@@ -105,12 +105,16 @@ export function registerLessonTools(server: McpServer, room: Classroom, charBudg
     {
       title: "학습 결과 제출",
       description:
-        `수강생의 학습 결과를 강사에게 제출합니다(tax2.ai 관리자 > 학습 결과). 수강생이 제출을 요청했을 때만, 보낼 내용을 보여 주고 확인을 받은 뒤 호출하세요. reflection은 수강생 본인의 학습 소감(대신 지어내지 말 것), summary는 이 대화에서 배운 내용·막힌 점 요약, questions는 수강생이 한 핵심 질문, files는 만든 결과물(${RESULT_EXTS.join("·")} 텍스트, 각 1MB 이하). 대화 원문 전체는 보내지 않습니다. 이미지(화면 캡처)는 이 도구로 보낼 수 없으니, 제출 후 돌려주는 '캡처 이미지 추가' 링크를 사용자에게 안내하세요(이미지를 글로 옮겨 파일로 만들지 마세요). 다시 제출하면 새 제출물로 추가됩니다.`,
+        `수강생의 학습 결과를 강사에게 제출합니다(tax2.ai 관리자 > 학습 결과). 수강생이 제출을 요청했을 때만, 보낼 내용을 보여 주고 확인을 받은 뒤 호출하세요. reflection은 수강생 본인의 학습 소감(대신 지어내지 말 것), summary는 이 대화에서 배운 내용·막힌 점 요약, questions는 수강생이 한 핵심 질문, transcript는 이 대화의 원문(강사가 수강생 진행 상황을 파악하는 용도: 수강생 메시지와 당신의 답을 처음부터 순서대로, 요약·수정 없이 그대로. 도구 호출 내용과 도구가 돌려준 교재 본문은 빼고, 너무 길면 앞부분은 summary로 대신), files는 만든 결과물(${RESULT_EXTS.join("·")} 텍스트, 각 1MB 이하). 기본적으로 transcript를 함께 보내되, 보내기 전에 원문도 강사에게 간다고 알리고, 고객 이름·주민번호·계좌 같은 개인정보가 있으면 가릴지 먼저 물어 [가림]으로 바꾸세요. 수강생이 원문 제출을 원하지 않으면 빼세요. 이미지(화면 캡처)는 이 도구로 보낼 수 없으니, 제출 후 돌려주는 '캡처 이미지 추가' 링크를 사용자에게 안내하세요(이미지를 글로 옮겨 파일로 만들지 마세요). 다시 제출하면 새 제출물로 추가됩니다.`,
       inputSchema: {
         lesson: z.string().max(40).describe("교시 (예: 1일차 1교시, day1-session1)"),
         reflection: z.string().min(1).max(5000).describe("수강생의 학습 소감 (수강생 말 그대로)"),
         summary: z.string().max(8000).optional().describe("대화에서 배운 내용·막힌 점 요약"),
         questions: z.array(z.string().max(1000)).max(50).optional().describe("수강생이 한 핵심 질문"),
+        transcript: z.array(z.object({
+          role: z.enum(["user", "assistant"]).describe("user=수강생, assistant=AI 튜터"),
+          text: z.string().max(40_000),
+        })).max(400).optional().describe("이 대화 원문 (처음부터 순서대로, 그대로)"),
         files: z.array(z.object({
           name: z.string().regex(/^[^/\\]{1,80}\.[A-Za-z0-9]{1,5}$/).describe("파일 이름 (예: 카드내역변환기.html)"),
           content: z.string().max(1_000_000).describe("파일 내용 (텍스트)"),
@@ -118,13 +122,13 @@ export function registerLessonTools(server: McpServer, room: Classroom, charBudg
       },
       annotations: WRITE,
     },
-    safe(async ({ lesson, reflection, summary, questions, files }) => {
+    safe(async ({ lesson, reflection, summary, questions, transcript, files }) => {
       const l = await room.readLesson(normalizeLessonKey(lesson));
-      const r = await room.submit({ lesson: l, reflection, summary, questions, files });
+      const r = await room.submit({ lesson: l, reflection, summary, questions, transcript, files });
       return text([
         `✓ ${r.membership.className} 반 강사에게 제출했습니다 — ${l.label} "${l.title}"`,
         `- 제출자: ${r.membership.name}`,
-        `- 질문 ${questions?.length ?? 0}개${r.files.length ? ` · 결과 파일 ${r.files.join(", ")}` : ""}`,
+        `- ${r.turns ? `대화 원문 ${r.turns}개 메시지` : `질문 ${questions?.length ?? 0}개`}${r.files.length ? ` · 결과 파일 ${r.files.join(", ")}` : ""}`,
         `- 캡처 이미지 추가: ${room.attachUrl(r.id)}`,
         "  (대화에 붙인 이미지는 도구로 보낼 수 없습니다. 캡처가 있으면 이 링크를 열어 붙여 넣기(Ctrl+V·⌘V)하라고 사용자에게 링크를 그대로 안내하세요.)",
         "다시 제출하면 새 제출물로 추가됩니다.",
