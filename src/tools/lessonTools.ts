@@ -1,5 +1,5 @@
 // 강의 도구: 교재 읽기(read_lesson), 반 참여(join_class), 학습 결과 제출(submit_learning_result).
-// 수강생이 claude.ai·ChatGPT에서 TAX2.AI 커넥터를 연결하면, 자기 AI 계정이 튜터가 되고
+// 수강생이 claude.ai·ChatGPT에서 TAX2.AI 커넥터를 연결하면, 자기 AI 계정이 TAX2 AI비서가 되고
 // 교재 근거와 제출 창구만 이 서버가 맡는다(설치 없음, tax2.ai가 AI 비용을 내지 않음).
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -26,7 +26,7 @@ function safe<A>(fn: (a: A) => Promise<CallToolResult>) {
 
 export function tutorGuide(l: LessonDoc): string {
   return [
-    `당신은 "${l.course ?? "TAX2.AI 강의"}" 과정의 AI 튜터입니다. 지금 수업은 ${l.label} "${l.title}"입니다.`,
+    `당신은 "${l.course ?? "TAX2.AI 강의"}" 과정의 TAX2 AI비서입니다. 지금 수업은 ${l.label} "${l.title}"입니다.`,
     "한국어 존댓말로 답하세요.",
     "- 아래 강의자료를 1순위 근거로 답하고, 근거가 된 섹션 제목을 [섹션: 제목]으로 표시하세요.",
     "- 강의자료에 없는 내용은 \"강의자료에는 없는 내용이에요\"라고 먼저 밝힌 뒤 일반 지식으로 보충하세요.",
@@ -49,7 +49,7 @@ export function registerLessonTools(server: McpServer, room: Classroom, charBudg
     {
       title: "강의 교재 읽기",
       description:
-        "TAX2.AI 강의 교재(서울지방세무사회 2기 'AI를 활용한 세무사 사업현장 업무 혁신')를 읽어 AI 튜터로 답할 근거를 가져옵니다. lesson 없이 부르면 교시 목록과 열림 여부를, lesson('1일차 1교시', 'day1-session1', '보충')을 주면 그 교시 본문을 돌려줍니다. 강사가 아직 열지 않은 교시는 본문을 주지 않습니다. 수강생이 수업 내용을 물으면 먼저 이 도구로 해당 교시를 읽고 답하세요.",
+        "TAX2.AI 강의 교재(서울지방세무사회 2기 'AI를 활용한 세무사 사업현장 업무 혁신')를 읽어 TAX2 AI비서로 답할 근거를 가져옵니다. lesson 없이 부르면 교시 목록과 열림 여부를, lesson('1일차 1교시', 'day1-session1', '보충')을 주면 그 교시 본문을 돌려줍니다. 강사가 아직 열지 않은 교시는 본문을 주지 않습니다. 수강생이 수업 내용을 물으면 먼저 이 도구로 해당 교시를 읽고 답하세요.",
       inputSchema: {
         lesson: z.string().max(40).optional().describe("교시 (예: 1일차 1교시, day1-session1, 보충). 비우면 목록"),
         section: z.string().max(60).optional().describe("이 섹션만 (섹션 제목 일부 또는 id)"),
@@ -112,7 +112,7 @@ export function registerLessonTools(server: McpServer, room: Classroom, charBudg
         summary: z.string().max(8000).optional().describe("대화에서 배운 내용·막힌 점 요약"),
         questions: z.array(z.string().max(1000)).max(50).optional().describe("수강생이 한 핵심 질문"),
         transcript: z.array(z.object({
-          role: z.enum(["user", "assistant"]).describe("user=수강생, assistant=AI 튜터"),
+          role: z.enum(["user", "assistant"]).describe("user=수강생, assistant=TAX2 AI비서"),
           text: z.string().max(40_000).describe("화면에 보인 메시지 내용 (생각·추론 과정 제외)"),
         })).max(400).optional().describe("채팅 화면에 보인 대화 기록 (수강생 메시지·최종 답변만, 순서대로)"),
         files: z.array(z.object({
