@@ -5,7 +5,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { Classroom, ClassroomUnavailable, DEFAULT_SLUG, NotInClass, RESULT_EXTS, normalizeLessonKey, type LessonDoc } from "../learn/classroom.js";
+import { AccessEnded, Classroom, ClassroomUnavailable, DEFAULT_SLUG, NotInClass, RESULT_EXTS, normalizeLessonKey, type LessonDoc } from "../learn/classroom.js";
 import { failure, paged, text } from "./reply.js";
 
 const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } as const;
@@ -16,6 +16,7 @@ function safe<A>(fn: (a: A) => Promise<CallToolResult>) {
     try {
       return await fn(a);
     } catch (err) {
+      if (err instanceof AccessEnded) return text(`[ACCESS_ENDED] ${err.message} 이 반의 교재 읽기·제출 도구는 더 이상 쓸 수 없습니다. 사용자에게 그대로 알리고, 다시 열어야 하면 강사에게 문의하도록 안내하세요. 교재 내용을 기억으로 대신 설명하지 마세요.`);
       if (err instanceof NotInClass) return text(`[NEEDS_CLASS] ${err.message} 강사가 알려 준 6자리 반 참여 코드를 사용자에게 물어본 뒤 join_class로 참여하고 다시 시도하세요.`);
       if (err instanceof ClassroomUnavailable) return text(`[CLASS_UNAVAILABLE] ${err.message}`);
       return failure(err);
@@ -57,6 +58,8 @@ export function registerLessonTools(server: McpServer, room: Classroom, charBudg
       annotations: READ,
     },
     safe(async ({ lesson, section, cursor }) => {
+      const ended = await room.accessEnded();
+      if (ended) throw new AccessEnded(ended);
       if (!lesson) {
         const list = await room.listLessons(DEFAULT_SLUG);
         return text([
@@ -89,7 +92,7 @@ export function registerLessonTools(server: McpServer, room: Classroom, charBudg
     safe(async ({ action, code, name, org }) => {
       if (action === "view") {
         const m = await room.membership();
-        return text(m ? `■ 참여 중인 반: ${m.className}\n- 이름: ${m.name}${m.org ? `\n- 소속: ${m.org}` : ""}` : "아직 참여한 반이 없습니다. 강사에게 받은 6자리 참여 코드와 이름을 물어 join_class(action=join)으로 참여하세요.");
+        return text(m ? `■ 참여 중인 반: ${m.className}\n- 이름: ${m.name}${m.org ? `\n- 소속: ${m.org}` : ""}${m.ended ? `\n- [ACCESS_ENDED] ${m.ended}` : ""}` : "아직 참여한 반이 없습니다. 강사에게 받은 6자리 참여 코드와 이름을 물어 join_class(action=join)으로 참여하세요.");
       }
       if (!code || !name) return text("[NEEDS_INPUT] 반 참여 코드(6자리)와 강사 명단에 보일 이름을 사용자에게 물어 다시 호출하세요.");
       const m = await room.join(code, name.trim(), (org ?? "").trim());
@@ -142,6 +145,8 @@ export function registerLessonTools(server: McpServer, room: Classroom, charBudg
     },
     safe(async ({ lesson }) => {
       const l = await room.readLesson(normalizeLessonKey(lesson));
+      const ended = await room.accessEnded();
+      if (ended) throw new AccessEnded(ended);
       const sub = await room.latestSubmission(l.aiLessonId);
       if (!sub) return text(`[NEEDS_SUBMISSION] ${l.label}에 낸 제출물이 아직 없습니다. 소감을 받아 submit_learning_result로 먼저 제출한 뒤, 돌려받은 캡처 링크를 안내하세요.`);
       return text([

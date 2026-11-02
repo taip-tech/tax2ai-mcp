@@ -17,7 +17,8 @@ export interface LessonDoc {
   course?: string | null; day?: number; session?: number;
   sections: { id: string; title: string; text: string }[];
 }
-export interface Membership { classId: string; className: string; name: string; org: string }
+/** ended: 수강 기간이 끝났거나 강사가 차단한 경우 그 사유, 아니면 null */
+export interface Membership { classId: string; className: string; name: string; org: string; ended: string | null }
 export interface ResultFile { name: string; content: string }
 
 /** "1일차 1교시", "day1-session1", "1-1", "보충" → 교시 키 */
@@ -85,14 +86,27 @@ export class Classroom {
 
   async membership(): Promise<Membership | null> {
     const u = this.user();
-    const rows = await this.rest<{ class_id: string; name: string; org: string | null }[]>(
-      `/rest/v1/learn_members?select=class_id,name,org&user_id=eq.${encodeURIComponent(u.userId)}&order=joined_at.desc&limit=1`,
+    const rows = await this.rest<{ class_id: string; name: string; org: string | null; blocked?: boolean }[]>(
+      `/rest/v1/learn_members?select=class_id,name,org,blocked&user_id=eq.${encodeURIComponent(u.userId)}&order=joined_at.desc&limit=1`,
       { token: u.token },
     );
     const m = rows[0];
     if (!m) return null;
-    const cls = await this.rest<{ name: string }[]>(`/rest/v1/learn_classes?select=name&id=eq.${m.class_id}`, { token: u.token }).catch(() => []);
-    return { classId: m.class_id, className: cls[0]?.name ?? "(이름 없음)", name: m.name, org: m.org ?? "" };
+    const cls = await this.rest<{ name: string; access_until?: string | null }[]>(`/rest/v1/learn_classes?select=name,access_until&id=eq.${m.class_id}`, { token: u.token }).catch(() => []);
+    const until = cls[0]?.access_until;
+    const ended = m.blocked
+      ? "강사가 이 반에서 학습 도구 사용을 막아 두었습니다."
+      : until && Date.parse(until) <= Date.now()
+        ? `이 반의 수강 기간이 ${new Date(until).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}에 끝났습니다.`
+        : null;
+    return { classId: m.class_id, className: cls[0]?.name ?? "(이름 없음)", name: m.name, org: m.org ?? "", ended };
+  }
+
+  /** 로그인한 수강생의 반 수강이 끝났거나 차단됐으면 그 사유. 로그인 안 함·반 미참여·저장소 없음이면 null(공개 교재는 그대로 읽힌다). */
+  async accessEnded(): Promise<string | null> {
+    if (!currentUser() || !this.canWrite) return null;
+    // 반 정보를 못 읽으면 막지 않는다(공개 교재 읽기만 해당 — 제출·업로드는 DB 정책이 따로 막는다)
+    return (await this.membership().catch(() => null))?.ended ?? null;
   }
 
   attachUrl(submissionId: string): string {
@@ -115,10 +129,13 @@ export class Classroom {
       method: "POST",
       token: u.token,
       body: JSON.stringify({ p_code: code.trim().toUpperCase(), p_name: name, p_org: org }),
+    }).catch((err: unknown) => {
+      if (err instanceof Error && err.message.includes("수강 기간")) throw new AccessEnded("이 반은 수강 기간이 끝나 새로 참여할 수 없습니다.");
+      throw err;
     });
     const row = rows?.[0];
     if (!row) throw new ClassroomUnavailable("반에 들어가지 못했습니다. 참여 코드를 확인해 주세요.");
-    return { classId: row.class_id, className: row.class_name, name, org };
+    return { classId: row.class_id, className: row.class_name, name, org, ended: null };
   }
 
   async submit(input: {
@@ -127,6 +144,7 @@ export class Classroom {
     const u = this.user();
     const m = await this.membership();
     if (!m) throw new NotInClass();
+    if (m.ended) throw new AccessEnded(m.ended);
     const id = `mcp-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
     const captures: Record<string, unknown>[] = [];
     for (const [i, f] of (input.files ?? []).entries()) {
@@ -167,6 +185,8 @@ export class Classroom {
     return { id, membership: m, files: captures.map((c) => String(c.name)) };
   }
 }
+
+export class AccessEnded extends Error {}
 
 export class NotInClass extends Error {
   constructor() {
