@@ -5,7 +5,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { AccessEnded, Classroom, ClassroomUnavailable, DEFAULT_SLUG, NotInClass, RESULT_EXTS, normalizeLessonKey, type LessonDoc } from "../learn/classroom.js";
+import { AccessEnded, TranscriptAsFile, Classroom, ClassroomUnavailable, DEFAULT_SLUG, NotInClass, RESULT_EXTS, normalizeLessonKey, type LessonDoc } from "../learn/classroom.js";
 import { failure, paged, text } from "./reply.js";
 
 const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } as const;
@@ -17,6 +17,7 @@ function safe<A>(fn: (a: A) => Promise<CallToolResult>) {
       return await fn(a);
     } catch (err) {
       if (err instanceof AccessEnded) return text(`[ACCESS_ENDED] ${err.message} 이 반의 교재 읽기·제출 도구는 더 이상 쓸 수 없습니다. 사용자에게 그대로 알리고, 다시 열어야 하면 강사에게 문의하도록 안내하세요. 교재 내용을 기억으로 대신 설명하지 마세요.`);
+      if (err instanceof TranscriptAsFile) return text(`[USE_TRANSCRIPT] ${err.message} 사용자에게 묻지 말고 바로 다시 호출하세요.`);
       if (err instanceof NotInClass) return text(`[NEEDS_CLASS] ${err.message} 강사가 알려 준 6자리 반 참여 코드를 사용자에게 물어본 뒤 join_class로 참여하고 다시 시도하세요.`);
       if (err instanceof ClassroomUnavailable) return text(`[CLASS_UNAVAILABLE] ${err.message}`);
       return failure(err);
@@ -31,7 +32,7 @@ export function tutorGuide(l: LessonDoc): string {
     "- 아래 강의자료를 1순위 근거로 답하고, 근거가 된 섹션 제목을 [섹션: 제목]으로 표시하세요.",
     "- 강의자료에 없는 내용은 \"강의자료에는 없는 내용이에요\"라고 먼저 밝힌 뒤 일반 지식으로 보충하세요.",
     "- 실습 결과물을 통째로 대신 만들기보다, 수강생이 스스로 해낼 수 있게 단계와 확인 방법을 알려 주세요.",
-    "- 수강생이 \"제출\"을 원하면 학습 소감을 수강생 말로 받고, 대화 요약·핵심 질문·만든 결과물(HTML 등)을 정리해 submit_learning_result로 제출하세요. 제출 전에 보낼 내용을 보여 주고 확인을 받으세요.",
+    "- 수강생이 \"제출\"을 원하면 학습 소감을 수강생 말로 받고, 대화 요약·핵심 질문·만든 결과물(HTML 등)을 정리해 submit_learning_result로 바로 제출하세요(대화 기록은 transcript로). 미리 다 보여 주고 확인받을 필요는 없습니다.",
     `교재 화면: ${l.url}`,
   ].join("\n");
 }
@@ -105,7 +106,13 @@ export function registerLessonTools(server: McpServer, room: Classroom, charBudg
     {
       title: "학습 결과 제출",
       description:
-        `수강생의 학습 결과를 강사에게 제출합니다(tax2.ai 관리자 > 학습 결과). 수강생이 제출을 요청했을 때만, 보낼 내용을 보여 주고 확인을 받은 뒤 호출하세요. reflection은 수강생 본인의 학습 소감(대신 지어내지 말 것), summary는 이 대화에서 배운 내용·막힌 점 요약, questions는 수강생이 한 핵심 질문, transcript는 강사가 수강생 진행 상황을 파악하기 위한 대화 기록(채팅 화면에 보이는 메시지만: 수강생이 보낸 메시지와 수강생에게 보여 준 최종 답변 문장을 순서대로. 생각·추론 과정, 내부 메모, 도구 호출과 도구 결과(교재 본문 포함)는 넣지 마세요. 답변이 길면 핵심 위주로 줄여도 되고, 대화가 길면 앞부분은 summary로 대신), files는 만든 결과물(${RESULT_EXTS.join("·")} 텍스트, 각 1MB 이하). 기본적으로 transcript를 함께 보내되, 보내기 전에 원문도 강사에게 간다고 알리고, 고객 이름·주민번호·계좌 같은 개인정보가 있으면 가릴지 먼저 물어 [가림]으로 바꾸세요. 수강생이 원문 제출을 원하지 않으면 빼세요. 이미지(화면 캡처)는 이 도구로 보낼 수 없으니, 제출 후 돌려주는 '캡처 이미지 추가' 링크를 사용자에게 안내하세요(이미지를 글로 옮겨 파일로 만들지 마세요). 다시 제출하면 새 제출물로 추가됩니다.`,
+        `수강생의 학습 결과를 강사에게 제출합니다(tax2.ai 관리자 > 학습 결과). 수강생이 제출을 요청하면 바로 호출하세요 — 보낼 내용을 미리 다 보여 주거나 여러 번 확인받지 마세요. 소감이 없을 때만 한 번 물어보세요.
+- reflection: 수강생 본인의 학습 소감(수강생 말 그대로, 대신 지어내지 말 것)
+- transcript(기본으로 항상 포함): 이 대화의 채팅 화면에 보인 메시지를 처음부터 순서대로 메시지별로(role·text). 수강생 메시지와 수강생에게 보여 준 최종 답변을 줄이거나 요약하지 말고 그대로. 생각·추론 과정, 도구 호출과 도구 결과(교재 본문)는 넣지 마세요. 고객 실명·주민번호·계좌번호가 보이면 [가림]으로 바꿔 넣으세요(따로 묻지 않아도 됩니다). 수강생이 대화 기록은 빼 달라고 할 때만 생략하세요.
+- 대화 기록을 .md·.txt 파일로 만들어 files에 넣지 마세요. 반드시 transcript에 넣어야 강사 화면에 대화 형태로 보입니다.
+- summary: 배운 내용·막힌 점 요약, files: 수강생이 만든 결과물(${RESULT_EXTS.join("·")} 텍스트, 각 1MB 이하. 예: 만든 HTML 도구)
+- 같은 교시에 이미 낸 제출물이 있으면 그 제출물이 새 내용으로 갱신됩니다(따로 쌓이지 않음). 수강생이 '새로 하나 더' 내길 원할 때만 new_submission=true.
+- 이미지(화면 캡처)는 이 도구로 보낼 수 없습니다. 제출 후 돌려주는 '캡처 이미지 추가' 링크를 안내하세요(이미지를 글로 옮겨 파일로 만들지 마세요).`,
       inputSchema: {
         lesson: z.string().max(40).describe("교시 (예: 1일차 1교시, day1-session1)"),
         reflection: z.string().min(1).max(5000).describe("수강생의 학습 소감 (수강생 말 그대로)"),
@@ -114,7 +121,8 @@ export function registerLessonTools(server: McpServer, room: Classroom, charBudg
         transcript: z.array(z.object({
           role: z.enum(["user", "assistant"]).describe("user=수강생, assistant=TAX2 AI비서"),
           text: z.string().max(40_000).describe("화면에 보인 메시지 내용 (생각·추론 과정 제외)"),
-        })).max(400).optional().describe("채팅 화면에 보인 대화 기록 (수강생 메시지·최종 답변만, 순서대로)"),
+        })).max(400).optional().describe("채팅 화면에 보인 대화 기록 — 메시지별, 처음부터 순서대로, 그대로"),
+        new_submission: z.boolean().optional().describe("true면 기존 제출물을 갱신하지 않고 새로 추가"),
         files: z.array(z.object({
           name: z.string().regex(/^[^/\\]{1,80}\.[A-Za-z0-9]{1,5}$/).describe("파일 이름 (예: 카드내역변환기.html)"),
           content: z.string().max(1_000_000).describe("파일 내용 (텍스트)"),
@@ -122,16 +130,16 @@ export function registerLessonTools(server: McpServer, room: Classroom, charBudg
       },
       annotations: WRITE,
     },
-    safe(async ({ lesson, reflection, summary, questions, transcript, files }) => {
+    safe(async ({ lesson, reflection, summary, questions, transcript, files, new_submission }) => {
       const l = await room.readLesson(normalizeLessonKey(lesson));
-      const r = await room.submit({ lesson: l, reflection, summary, questions, transcript, files });
+      const r = await room.submit({ lesson: l, reflection, summary, questions, transcript, files, newSubmission: new_submission });
       return text([
-        `✓ ${r.membership.className} 반 강사에게 제출했습니다 — ${l.label} "${l.title}"`,
+        `✓ ${r.membership.className} 반 강사에게 ${r.updated ? "제출물을 갱신했습니다" : "제출했습니다"} — ${l.label} "${l.title}"`,
         `- 제출자: ${r.membership.name}`,
-        `- ${r.turns ? `대화 원문 ${r.turns}개 메시지` : `질문 ${questions?.length ?? 0}개`}${r.files.length ? ` · 결과 파일 ${r.files.join(", ")}` : ""}`,
+        `- ${r.turns ? `대화 기록 ${r.turns}개 메시지` : `질문 ${questions?.length ?? 0}개`}${r.files.length ? ` · 결과 파일 ${r.files.join(", ")}` : ""}`,
         `- 캡처 이미지 추가: ${room.attachUrl(r.id)}`,
         "  (대화에 붙인 이미지는 도구로 보낼 수 없습니다. 캡처가 있으면 이 링크를 열어 붙여 넣기(Ctrl+V·⌘V)하라고 사용자에게 링크를 그대로 안내하세요.)",
-        "다시 제출하면 새 제출물로 추가됩니다.",
+        "사용자에게는 짧게 알리세요(무엇을 보냈는지 한두 줄 + 캡처 링크).",
       ].join("\n"));
     }),
   );

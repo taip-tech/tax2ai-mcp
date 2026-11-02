@@ -140,34 +140,66 @@ export class Classroom {
     return { classId: row.class_id, className: row.class_name, name, org, ended: null };
   }
 
-  async submit(input: {
-    lesson: LessonDoc; reflection: string; summary?: string; questions?: string[]; files?: ResultFile[]; transcript?: TranscriptTurn[];
-  }): Promise<{ id: string; membership: Membership; files: string[]; turns: number }> {
-    const u = this.user();
-    const m = await this.membership();
-    if (!m) throw new NotInClass();
-    if (m.ended) throw new AccessEnded(m.ended);
-    const id = `mcp-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
-    const captures: Record<string, unknown>[] = [];
-    for (const [i, f] of (input.files ?? []).entries()) {
+  /** tax2.ai API 주소. tax2.ai → www.tax2.ai 리다이렉트를 거치면 Authorization 헤더가 떨어지므로 처음부터 www로 부른다. */
+  private get api(): string {
+    return this.siteUrl.replace(/^https:\/\/tax2\.ai\b/, "https://www.tax2.ai");
+  }
+
+  /** 결과 파일을 수강생 토큰으로 저장소에 올린다. 대화 기록처럼 보이는 파일은 거절(transcript로 보내야 대화창으로 보인다). */
+  private async uploadFiles(files: ResultFile[], u: { userId: string; token: string }, classId: string, stem: string) {
+    const out: { path: string; kind: "file"; name: string; mediaType: string; size: number; label: string }[] = [];
+    for (const [i, f] of files.entries()) {
       const ext = (/\.([a-z0-9]+)$/i.exec(f.name)?.[1] ?? "txt").toLowerCase();
       const mediaType = MIME[ext];
       if (!mediaType) throw new RangeError(`올릴 수 없는 파일 형식입니다: ${f.name} (가능: ${RESULT_EXTS.join(", ")})`);
+      if (TRANSCRIPT_FILE.test(f.name) && /^(md|txt|json)$/.test(ext)) throw new TranscriptAsFile(f.name);
       const bytes = Buffer.from(f.content, "utf8");
       if (bytes.length > MAX_FILE_BYTES) throw new RangeError(`${f.name}이(가) 1MB를 넘습니다.`);
-      const path = `${m.classId}/${u.userId}/${id}-${i + 1}.${ext}`;
+      const path = `${classId}/${u.userId}/${stem}${i + 1}.${ext}`;
       const r = await this.fetcher(`${this.supabaseUrl}/storage/v1/object/${BUCKET}/${path}`, {
         method: "POST",
         headers: this.headers(u.token, { "Content-Type": `${mediaType}; charset=utf-8`, "x-upsert": "true" }),
         body: bytes,
       });
       if (!r.ok) throw new ClassroomUnavailable(`${f.name} 업로드 실패 (${r.status}): ${(await r.text()).slice(0, 160)}`);
-      captures.push({ path, kind: "file", name: f.name, mediaType, size: bytes.length, label: "claude.ai·ChatGPT에서 제출" });
+      out.push({ path, kind: "file", name: f.name, mediaType, size: bytes.length, label: "claude.ai·ChatGPT에서 제출" });
     }
+    return out;
+  }
+
+  /**
+   * 제출. 같은 교시에 이미 낸 제출물이 있으면 그 제출물을 새 내용으로 갱신한다(newSubmission=true면 새로 추가).
+   * 갱신은 tax2.ai PATCH /api/learn/submissions/<id> (수강생 토큰으로 본인 확인 후 서버가 쓴다 — 수강생에게 수정 RLS가 없음).
+   */
+  async submit(input: {
+    lesson: LessonDoc; reflection: string; summary?: string; questions?: string[]; files?: ResultFile[]; transcript?: TranscriptTurn[]; newSubmission?: boolean;
+  }): Promise<{ id: string; membership: Membership; files: string[]; turns: number; updated: boolean }> {
+    const u = this.user();
+    const m = await this.membership();
+    if (!m) throw new NotInClass();
+    if (m.ended) throw new AccessEnded(m.ended);
     const questions = (input.questions ?? []).map((q) => q.trim()).filter(Boolean).slice(0, 50);
     const transcript = (input.transcript ?? []).map((t) => ({ role: t.role, text: t.text.trim() })).filter((t) => t.text);
     const total = transcript.reduce((n, t) => n + t.text.length, 0);
-    if (total > TRANSCRIPT_MAX_CHARS) throw new RangeError(`대화 원문이 너무 깁니다(${total.toLocaleString()}자, 최대 ${TRANSCRIPT_MAX_CHARS.toLocaleString()}자). 앞부분을 summary로 줄이고 최근 대화만 transcript로 보내세요.`);
+    if (total > TRANSCRIPT_MAX_CHARS) throw new RangeError(`대화 기록이 너무 깁니다(${total.toLocaleString()}자, 최대 ${TRANSCRIPT_MAX_CHARS.toLocaleString()}자). 앞부분을 summary로 줄이고 최근 대화만 transcript로 보내세요.`);
+    for (const f of input.files ?? []) if (TRANSCRIPT_FILE.test(f.name) && /\.(md|txt|json)$/i.test(f.name)) throw new TranscriptAsFile(f.name);
+    const worksheet = input.summary ? `■ AI 대화 요약 (수강생의 AI 계정에서 정리)\n\n${input.summary}` : undefined;
+
+    const prev = input.newSubmission ? null : await this.latestSubmission(input.lesson.aiLessonId);
+    if (prev) {
+      const files = await this.uploadFiles(input.files ?? [], u, m.classId, `${prev.id}-u${Date.now().toString(36)}-`);
+      const r = await this.fetcher(`${this.api}/api/learn/submissions/${encodeURIComponent(prev.id)}`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${u.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ reflection: input.reflection, worksheet_text: worksheet, transcript: transcript.length ? transcript : undefined, questions, files }),
+      });
+      if (r.status === 403) throw new AccessEnded("수강 기간이 끝났거나 학습 연결이 끊겼습니다.");
+      if (!r.ok) throw new ClassroomUnavailable(`제출물 갱신 실패 (${r.status}): ${(await r.text()).slice(0, 160)}`);
+      return { id: prev.id, membership: m, files: files.map((f) => f.name), turns: transcript.length, updated: true };
+    }
+
+    const id = `mcp-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
+    const captures = await this.uploadFiles(input.files ?? [], u, m.classId, `${id}-`);
     await this.rest(`/rest/v1/learn_submissions`, {
       method: "POST",
       token: u.token,
@@ -181,8 +213,8 @@ export class Classroom {
         lesson_title: input.lesson.title,
         learner: { name: m.name, org: m.org },
         reflection: input.reflection,
-        worksheet_text: input.summary ? `■ AI 대화 요약 (수강생의 AI 계정에서 정리)\n\n${input.summary}` : null,
-        // 원문이 있으면 원문(질문·답 모두), 없으면 핵심 질문만
+        worksheet_text: worksheet ?? null,
+        // 대화 기록이 있으면 대화(질문·답 모두), 없으면 핵심 질문만
         conversation: transcript.length ? transcript : questions.map((text) => ({ role: "user", text })),
         captures,
         stats: {
@@ -191,7 +223,15 @@ export class Classroom {
         },
       }),
     });
-    return { id, membership: m, files: captures.map((c) => String(c.name)), turns: transcript.length };
+    return { id, membership: m, files: captures.map((c) => c.name), turns: transcript.length, updated: false };
+  }
+}
+
+/** 대화 기록을 파일(.md 등)로 만들어 보낸 경우 — transcript로 다시 보내게 한다 */
+export const TRANSCRIPT_FILE = /대화|전문|원문|기록|transcript|conversation|chat|채팅/i;
+export class TranscriptAsFile extends RangeError {
+  constructor(name: string) {
+    super(`"${name}"은(는) 대화 기록 파일로 보입니다. 대화 기록은 파일로 만들지 말고 transcript 항목에 메시지별(role·text)로 넣어 다시 호출하세요. 그래야 강사 화면에 대화 형태로 보입니다.`);
   }
 }
 

@@ -2,7 +2,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AccessEnded, Classroom, NotInClass, normalizeLessonKey } from "../src/learn/classroom.ts";
+import { AccessEnded, Classroom, NotInClass, TranscriptAsFile, normalizeLessonKey } from "../src/learn/classroom.ts";
 import { runAsUser } from "../src/office/caller.ts";
 
 const UID = "11111111-1111-4111-8111-111111111111";
@@ -18,7 +18,7 @@ test("교시 이름 해석", () => {
 });
 
 type Call = { url: string; method: string; headers: Record<string, string>; body?: string };
-function fakeFetch(member: boolean, opts: { blocked?: boolean; until?: string | null; joinError?: string } = {}) {
+function fakeFetch(member: boolean, opts: { blocked?: boolean; until?: string | null; joinError?: string; prevId?: string } = {}) {
   const calls: Call[] = [];
   const fn = (async (input: string | URL, init: RequestInit = {}) => {
     const url = String(input);
@@ -32,6 +32,8 @@ function fakeFetch(member: boolean, opts: { blocked?: boolean; until?: string | 
     if (url.includes("/rest/v1/rpc/learn_join") && opts.joinError) return new Response(JSON.stringify({ message: opts.joinError }), { status: 400 });
     if (url.includes("/rest/v1/rpc/learn_join")) return json([{ class_id: CLS, class_name: "서울2기" }]);
     if (url.includes("/storage/v1/object/")) return json({ Key: "ok" });
+    if (url.includes("/rest/v1/learn_submissions?select=")) return json(opts.prevId ? [{ id: opts.prevId, submitted_at: "2026-11-04T01:00:00Z" }] : []);
+    if (url.includes("/api/learn/submissions/")) return json({ ok: true });
     if (url.includes("/rest/v1/learn_submissions")) return new Response(null, { status: 201 });
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
@@ -115,4 +117,28 @@ test("대화 원문(transcript)을 보내면 질문·답 모두 저장", async (
   assert.deepEqual(row.conversation, [{ role: "user", text: "1교시 알려줘" }, { role: "assistant", text: "GIGO 원칙…" }]);
   assert.equal(row.stats.questions, 1);
   assert.equal(row.stats.transcript, true);
+});
+
+test("같은 교시에 낸 제출물이 있으면 www API로 갱신(새 줄 안 쌓임)", async () => {
+  const f = fakeFetch(true, { prevId: "mcp-old-1234" });
+  const room = new Classroom("https://tax2.ai", "https://db.example", "anon", f.fn);
+  const lesson = await room.readLesson("day1-session1");
+  const r = await runAsUser({ userId: UID, token: "tok" }, () =>
+    room.submit({ lesson, reflection: "좋았다", transcript: [{ role: "user", text: "안녕" }, { role: "assistant", text: "반가워요" }] }),
+  );
+  assert.equal(r.updated, true);
+  assert.equal(r.id, "mcp-old-1234");
+  const patch = f.calls.find((c) => c.method === "PATCH")!;
+  assert.equal(patch.url, "https://www.tax2.ai/api/learn/submissions/mcp-old-1234");
+  assert.equal(patch.headers.Authorization, "Bearer tok");
+  assert.equal(JSON.parse(patch.body!).transcript.length, 2);
+  assert.ok(!f.calls.some((c) => c.method === "POST" && c.url.endsWith("/rest/v1/learn_submissions")));
+});
+
+test("대화 기록을 .md 파일로 보내면 transcript로 다시 보내게 거절", async () => {
+  const f = fakeFetch(true);
+  const room = new Classroom("https://tax2.ai", "https://db.example", "anon", f.fn);
+  const lesson = await room.readLesson("day1-session1");
+  await assert.rejects(runAsUser({ userId: UID, token: "tok" }, () => room.submit({ lesson, reflection: "x", files: [{ name: "1일차1교시_대화전문.md", content: "..." }] })), TranscriptAsFile);
+  assert.ok(!f.calls.some((c) => c.url.includes("/storage/")));
 });
