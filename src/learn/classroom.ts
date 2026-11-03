@@ -21,6 +21,7 @@ export interface LessonDoc {
 export interface Membership { classId: string; className: string; name: string; org: string; ended: string | null }
 export interface ResultFile { name: string; content: string }
 export interface TranscriptTurn { role: "user" | "assistant"; text: string }
+export const NO_REFLECTION = "(소감 없음)";
 export const TRANSCRIPT_MAX_CHARS = 400_000;
 
 /** "1일차 1교시", "day1-session1", "1-1", "보충" → 교시 키 */
@@ -172,12 +173,14 @@ export class Classroom {
    * 갱신은 tax2.ai PATCH /api/learn/submissions/<id> (수강생 토큰으로 본인 확인 후 서버가 쓴다 — 수강생에게 수정 RLS가 없음).
    */
   async submit(input: {
-    lesson: LessonDoc; reflection: string; summary?: string; questions?: string[]; files?: ResultFile[]; transcript?: TranscriptTurn[]; newSubmission?: boolean;
+    lesson: LessonDoc; reflection?: string; summary?: string; questions?: string[]; files?: ResultFile[]; transcript?: TranscriptTurn[]; newSubmission?: boolean;
   }): Promise<{ id: string; membership: Membership; files: string[]; turns: number; updated: boolean }> {
     const u = this.user();
     const m = await this.membership();
     if (!m) throw new NotInClass();
     if (m.ended) throw new AccessEnded(m.ended);
+    // 학습 소감은 선택. 갱신 때 없으면 기존 소감을 그대로 두고, 새 제출이면 웹 제출과 같은 표시 문구를 쓴다(컬럼 NOT NULL)
+    const reflection = input.reflection?.trim() ?? "";
     const questions = (input.questions ?? []).map((q) => q.trim()).filter(Boolean).slice(0, 50);
     const transcript = (input.transcript ?? []).map((t) => ({ role: t.role, text: t.text.trim() })).filter((t) => t.text);
     const total = transcript.reduce((n, t) => n + t.text.length, 0);
@@ -191,7 +194,7 @@ export class Classroom {
       const r = await this.fetcher(`${this.api}/api/learn/submissions/${encodeURIComponent(prev.id)}`, {
         method: "PATCH",
         headers: { Authorization: `Bearer ${u.token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ reflection: input.reflection, worksheet_text: worksheet, transcript: transcript.length ? transcript : undefined, questions, files }),
+        body: JSON.stringify({ reflection: reflection || undefined, worksheet_text: worksheet, transcript: transcript.length ? transcript : undefined, questions, files }),
       });
       if (r.status === 403) throw new AccessEnded("수강 기간이 끝났거나 학습 연결이 끊겼습니다.");
       if (!r.ok) throw new ClassroomUnavailable(`제출물 갱신 실패 (${r.status}): ${(await r.text()).slice(0, 160)}`);
@@ -212,7 +215,7 @@ export class Classroom {
         lesson_id: input.lesson.aiLessonId,
         lesson_title: input.lesson.title,
         learner: { name: m.name, org: m.org },
-        reflection: input.reflection,
+        reflection: reflection || NO_REFLECTION,
         worksheet_text: worksheet ?? null,
         // 대화 기록이 있으면 대화(질문·답 모두), 없으면 핵심 질문만
         conversation: transcript.length ? transcript : questions.map((text) => ({ role: "user", text })),

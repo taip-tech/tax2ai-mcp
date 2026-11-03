@@ -142,3 +142,18 @@ test("대화 기록을 .md 파일로 보내면 transcript로 다시 보내게 �
   await assert.rejects(runAsUser({ userId: UID, token: "tok" }, () => room.submit({ lesson, reflection: "x", files: [{ name: "1일차1교시_대화전문.md", content: "..." }] })), TranscriptAsFile);
   assert.ok(!f.calls.some((c) => c.url.includes("/storage/")));
 });
+
+test("학습 소감 없이도 제출된다 — 새 제출은 '(소감 없음)', 갱신은 기존 소감 유지", async () => {
+  const f = fakeFetch(true);
+  const room = new Classroom("https://tax2.ai", "https://db.example", "anon", f.fn);
+  const lesson = await room.readLesson("day1-session1");
+  await runAsUser({ userId: UID, token: "tok" }, () => room.submit({ lesson, transcript: [{ role: "user", text: "질문" }] }));
+  const row = JSON.parse(f.calls.find((c) => c.url.endsWith("/rest/v1/learn_submissions"))!.body!);
+  assert.equal(row.reflection, "(소감 없음)");
+
+  const g = fakeFetch(true, { prevId: "mcp-old-1234" });
+  const room2 = new Classroom("https://tax2.ai", "https://db.example", "anon", g.fn);
+  await runAsUser({ userId: UID, token: "tok" }, () => room2.submit({ lesson, reflection: "  " }));
+  const patch = JSON.parse(g.calls.find((c) => c.method === "PATCH")!.body!);
+  assert.equal("reflection" in patch, false);
+});

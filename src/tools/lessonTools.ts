@@ -32,7 +32,7 @@ export function tutorGuide(l: LessonDoc): string {
     "- 아래 강의자료를 1순위 근거로 답하고, 근거가 된 섹션 제목을 [섹션: 제목]으로 표시하세요.",
     "- 강의자료에 없는 내용은 \"강의자료에는 없는 내용이에요\"라고 먼저 밝힌 뒤 일반 지식으로 보충하세요.",
     "- 실습 결과물을 통째로 대신 만들기보다, 수강생이 스스로 해낼 수 있게 단계와 확인 방법을 알려 주세요.",
-    "- 수강생이 \"제출\"을 원하면 학습 소감을 수강생 말로 받고, 대화 요약·핵심 질문·만든 결과물(HTML 등)을 정리해 submit_learning_result로 바로 제출하세요(대화 기록은 transcript로). 미리 다 보여 주고 확인받을 필요는 없습니다.",
+    "- 수강생이 \"제출\"을 원하면 대화 요약·핵심 질문·만든 결과물(HTML 등)을 정리해 submit_learning_result로 바로 제출하세요(대화 기록은 transcript로). 학습 소감은 선택이라 따로 묻지 않습니다 — 수강생이 소감을 말했을 때만 넣으세요. 미리 다 보여 주고 확인받을 필요는 없습니다.",
     `교재 화면: ${l.url}`,
   ].join("\n");
 }
@@ -106,8 +106,8 @@ export function registerLessonTools(server: McpServer, room: Classroom, charBudg
     {
       title: "학습 결과 제출",
       description:
-        `수강생의 학습 결과를 강사에게 제출합니다(tax2.ai 관리자 > 학습 결과). 수강생이 제출을 요청하면 바로 호출하세요 — 보낼 내용을 미리 다 보여 주거나 여러 번 확인받지 마세요. 소감이 없을 때만 한 번 물어보세요.
-- reflection: 수강생 본인의 학습 소감(수강생 말 그대로, 대신 지어내지 말 것)
+        `수강생의 학습 결과를 강사에게 제출합니다(tax2.ai 관리자 > 학습 결과). 수강생이 제출을 요청하면 바로 호출하세요 — 보낼 내용을 미리 다 보여 주거나 여러 번 확인받지 마세요. 학습 소감은 묻지 마세요(선택 항목).
+- reflection(선택): 수강생이 스스로 말한 학습 소감이 있을 때만, 수강생 말 그대로. 없으면 생략하세요 — 대신 지어내지 말 것
 - transcript(기본으로 항상 포함): 이 대화의 채팅 화면에 보인 메시지를 처음부터 순서대로 메시지별로(role·text). 수강생 메시지와 수강생에게 보여 준 최종 답변을 줄이거나 요약하지 말고 그대로. 생각·추론 과정, 도구 호출과 도구 결과(교재 본문)는 넣지 마세요. 고객 실명·주민번호·계좌번호가 보이면 [가림]으로 바꿔 넣으세요(따로 묻지 않아도 됩니다). 수강생이 대화 기록은 빼 달라고 할 때만 생략하세요.
 - 대화 기록을 .md·.txt 파일로 만들어 files에 넣지 마세요. 반드시 transcript에 넣어야 강사 화면에 대화 형태로 보입니다.
 - summary: 배운 내용·막힌 점 요약, files: 수강생이 만든 결과물(${RESULT_EXTS.join("·")} 텍스트, 각 1MB 이하. 예: 만든 HTML 도구)
@@ -115,7 +115,7 @@ export function registerLessonTools(server: McpServer, room: Classroom, charBudg
 - 이미지(화면 캡처)는 이 도구로 보낼 수 없습니다. 제출 후 돌려주는 '캡처 이미지 추가' 링크를 안내하세요(이미지를 글로 옮겨 파일로 만들지 마세요).`,
       inputSchema: {
         lesson: z.string().max(40).describe("교시 (예: 1일차 1교시, day1-session1)"),
-        reflection: z.string().min(1).max(5000).describe("수강생의 학습 소감 (수강생 말 그대로)"),
+        reflection: z.string().max(5000).optional().describe("선택: 수강생이 말한 학습 소감 (수강생 말 그대로, 없으면 생략)"),
         summary: z.string().max(8000).optional().describe("대화에서 배운 내용·막힌 점 요약"),
         questions: z.array(z.string().max(1000)).max(50).optional().describe("수강생이 한 핵심 질문"),
         transcript: z.array(z.object({
@@ -160,7 +160,7 @@ export function registerLessonTools(server: McpServer, room: Classroom, charBudg
       const ended = await room.accessEnded();
       if (ended) throw new AccessEnded(ended);
       const sub = await room.latestSubmission(l.aiLessonId);
-      if (!sub) return text(`[NEEDS_SUBMISSION] ${l.label}에 낸 제출물이 아직 없습니다. 소감을 받아 submit_learning_result로 먼저 제출한 뒤, 돌려받은 캡처 링크를 안내하세요.`);
+      if (!sub) return text(`[NEEDS_SUBMISSION] ${l.label}에 낸 제출물이 아직 없습니다. submit_learning_result로 먼저 제출한 뒤, 돌려받은 캡처 링크를 안내하세요.`);
       return text([
         `■ ${l.label} 제출물(${new Date(sub.submittedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })})에 캡처 붙이기`,
         room.attachUrl(sub.id),
