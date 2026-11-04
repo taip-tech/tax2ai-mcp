@@ -66,7 +66,7 @@ export class Classroom {
   // ── 로그인 사용자 전용 ──
   private user() {
     const u = currentUser();
-    if (!u) throw new ClassroomUnavailable("로그인 정보가 없습니다. TAX2.AI 커넥터를 로그인(OAuth) 방식으로 연결해 주세요.");
+    if (!u) throw new ClassroomUnavailable("로그인 정보가 없습니다. 주소에서 ?oc= 를 뺀 https://mcp.tax2.ai/mcp 로 커넥터를 연결해 TAX2 로그인을 마쳐 주세요.");
     if (!this.canWrite) throw new ClassroomUnavailable("이 서버에는 반 저장소 설정이 없습니다.");
     return u;
   }

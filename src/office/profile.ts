@@ -103,7 +103,7 @@ class RemoteProfileStore implements ProfileStore {
 
   private user() {
     const u = currentUser();
-    if (!u) throw new ProfileUnavailable("로그인 정보가 없어 사무소 프로필을 사용할 수 없습니다.");
+    if (!u) throw new ProfileUnavailable("로그인 정보가 없어 사무소 프로필을 사용할 수 없습니다. TAX2 회원 기능이므로 주소에서 ?oc= 를 뺀 https://mcp.tax2.ai/mcp 로 연결해 로그인해 주세요.");
     return u;
   }
 

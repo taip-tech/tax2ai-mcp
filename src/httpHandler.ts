@@ -17,6 +17,7 @@ import {
 import { buildServer, SERVER_NAME, SERVER_VERSION } from "./server.js";
 import { openDesks, type Desks } from "./tools/context.js";
 import { runAsUser } from "./office/caller.js";
+import { openSavedKeys, type SavedKeyLookup } from "./office/savedKey.js";
 
 const MAX_BODY = 1_000_000;
 const MCP_PATHS = new Set(["/mcp", "/api/mcp"]);
@@ -105,7 +106,18 @@ function reply(res: ServerResponse, status: number, body: unknown): void {
 
 export type McpHttpHandler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 
-export function createMcpHandler(cfg: Settings, desks: Desks = openDesks(cfg, undefined, true), verifier?: TokenVerifier): McpHttpHandler {
+/** 도구 호출이 들어 있는 요청인가 (초기화·목록 조회에는 키가 필요 없다) */
+function callsTool(body: unknown): boolean {
+  const list = Array.isArray(body) ? body : [body];
+  return list.some((m) => typeof m === "object" && m !== null && (m as { method?: unknown }).method === "tools/call");
+}
+
+export function createMcpHandler(
+  cfg: Settings,
+  desks: Desks = openDesks(cfg, undefined, true),
+  verifier?: TokenVerifier,
+  savedKey: SavedKeyLookup = openSavedKeys(cfg),
+): McpHttpHandler {
   // desks(캐시 포함)는 요청 간 공유
   const quota = new MinuteQuota(cfg.ratePerMinute);
   const oauth = cfg.authMode === "oauth";
@@ -174,28 +186,33 @@ export function createMcpHandler(cfg: Settings, desks: Desks = openDesks(cfg, un
       return reply(res, 404, { error: "not found" });
     }
     if (!MCP_PATHS.has(path)) return reply(res, 404, { error: "not found" });
+    const oc = userKey(req, url, cfg.allowQueryOc);
+    if (oc === null) return reply(res, 400, { jsonrpc: "2.0", error: { code: -32602, message: "OC 형식이 올바르지 않습니다." }, id: null });
     let caller: Caller | undefined;
     let bearer: string | undefined;
     if (verify) {
       const auth = String(req.headers.authorization ?? "");
       const m = /^Bearer\s+(.+)$/i.exec(auth);
-      if (!m) {
+      // 비회원: 본인 OC를 실어 보내면 로그인 없이 쓴다. 호출은 그 키로만 나가고(공용 키 미사용), 로그인 전용 도구는 막힌다
+      if (!m && !oc) {
         res.setHeader("WWW-Authenticate", bearerChallenge(cfg));
         return reply(res, 401, { error: "login_required", message: `${cfg.brandName} 로그인이 필요합니다.` });
       }
-      try {
-        bearer = m[1].trim();
-        caller = await verify(bearer);
-      } catch (err) {
-        const rejected = err instanceof TokenRejected ? err : undefined;
-        res.setHeader("WWW-Authenticate", bearerChallenge(cfg, { code: "invalid_token", description: rejected?.headerHint ?? "invalid token" }));
-        return reply(res, 401, { error: "invalid_token", message: rejected?.message ?? "토큰을 확인할 수 없습니다. 다시 로그인하세요." });
+      if (m) {
+        try {
+          bearer = m[1].trim();
+          caller = await verify(bearer);
+        } catch (err) {
+          const rejected = err instanceof TokenRejected ? err : undefined;
+          res.setHeader("WWW-Authenticate", bearerChallenge(cfg, { code: "invalid_token", description: rejected?.headerHint ?? "invalid token" }));
+          return reply(res, 401, { error: "invalid_token", message: rejected?.message ?? "토큰을 확인할 수 없습니다. 다시 로그인하세요." });
+        }
       }
     } else if (!tokenOk(req, cfg.accessToken)) {
       return reply(res, 401, { error: "unauthorized" });
     }
-    // 로그인 사용자는 계정 단위, 공개 모드는 IP 단위로 분당 호출 제한
-    const quotaKey = caller ? `user:${caller.userId}` : cfg.publicMode && !cfg.accessToken ? `ip:${clientIp(req, cfg.trustProxy)}` : "";
+    // 로그인 사용자는 계정 단위, 공개 모드·비회원은 IP 단위로 분당 호출 제한
+    const quotaKey = caller ? `user:${caller.userId}` : verify || (cfg.publicMode && !cfg.accessToken) ? `ip:${clientIp(req, cfg.trustProxy)}` : "";
     if (quotaKey && !quota.take(quotaKey)) {
       res.setHeader("Retry-After", "60");
       return reply(res, 429, { jsonrpc: "2.0", error: { code: -32000, message: `분당 ${cfg.ratePerMinute}회 호출 한도를 넘었습니다. 1분 뒤 다시 시도하세요.` }, id: null });
@@ -203,8 +220,6 @@ export function createMcpHandler(cfg: Settings, desks: Desks = openDesks(cfg, un
     if (req.method !== "POST") {
       return reply(res, 405, { jsonrpc: "2.0", error: { code: -32000, message: "무상태 모드: POST만 지원합니다." }, id: null });
     }
-    const oc = userKey(req, url, cfg.allowQueryOc);
-    if (oc === null) return reply(res, 400, { jsonrpc: "2.0", error: { code: -32602, message: "OC 형식이 올바르지 않습니다." }, id: null });
     try {
       const body = await readJson(req as IncomingWithBody);
       const server = buildServer(desks);
@@ -215,7 +230,9 @@ export function createMcpHandler(cfg: Settings, desks: Desks = openDesks(cfg, un
       });
       await server.connect(transport);
       const user = caller && bearer ? { userId: caller.userId, token: bearer } : undefined;
-      await runAsUser(user, () => runWithUserKey(oc, () => transport.handleRequest(req, res, body)));
+      // 우선순위: 연결에 실어 보낸 키(헤더·?oc=) > 계정에 저장한 키 > 서버 공용 키
+      const key = oc ?? (user && callsTool(body) ? await savedKey(user) : undefined);
+      await runAsUser(user, () => runWithUserKey(key, () => transport.handleRequest(req, res, body)));
     } catch (err) {
       if (!res.headersSent) {
         reply(res, 400, { jsonrpc: "2.0", error: { code: -32700, message: err instanceof Error ? err.message : "bad request" }, id: null });

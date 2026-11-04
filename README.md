@@ -26,6 +26,10 @@ MCP 연결, `/semu` 검토 스킬, 실무 서브에이전트 5종을 한 번에 
 
 **Claude 웹·데스크톱:** 설정 → 커넥터 → 사용자 지정 커넥터 추가 → `https://mcp.tax2.ai/mcp` → 연결 → TAX2 계정(카카오)으로 로그인 → 허용
 
+**본인 법제처 OC (필수):** 공개 서버는 공용 키를 제공하지 않습니다. 신청 정보의 서버 도메인에 `mcp.tax2.ai`를 등록한 뒤 [tax2.ai/mypage/office](https://tax2.ai/mypage/office)에 OC를 저장합니다. 커넥터 주소는 그대로 둡니다.
+
+**비회원:** 커넥터 주소 끝에 본인 OC를 붙이면 로그인 없이 씁니다: `https://mcp.tax2.ai/mcp?oc=본인OC` (신청 정보에 `mcp.tax2.ai` 등록 필요. 사무소·강의 제출 기능은 로그인 필요)
+
 **수강생이라면** → [docs/STUDENT_GUIDE.md](docs/STUDENT_GUIDE.md)부터 보세요.
 
 > 출력은 참고자료이며 유권해석이 아닙니다. 법적 효과가 있는 판단은 원문 확인과 세무사 검토를 거치세요.

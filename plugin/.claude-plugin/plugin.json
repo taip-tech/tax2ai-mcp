@@ -9,8 +9,8 @@
   "userConfig": {
     "lawgoOc": {
       "type": "string",
-      "title": "법제처 OC (선택)",
-      "description": "open.law.go.kr에서 발급받은 본인 OPEN API OC 값. 쓰려면 신청 정보의 서버 도메인에 mcp.tax2.ai를 등록해야 합니다. 비워 두면 TAX2.AI 공용 키로 동작합니다(하루 사용량 제한이 있을 수 있음).",
+      "title": "법제처 OC",
+      "description": "open.law.go.kr에서 발급받은 본인 OPEN API OC 값. 쓰려면 신청 정보의 서버 도메인에 mcp.tax2.ai를 등록해야 합니다. 비워 두면 tax2.ai 계정에 저장한 OC를 씁니다. 공용 키는 제공하지 않습니다.",
       "sensitive": true,
       "default": ""
     }

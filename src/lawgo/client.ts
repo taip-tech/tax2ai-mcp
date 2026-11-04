@@ -111,7 +111,7 @@ export class LawgoClient {
       throw new LawgoFault(
         "KEY_MISSING",
         this.cfg.requireUserOc
-          ? "본인의 법제처 OC가 필요합니다. open.law.go.kr에서 OPEN API를 신청하고, 연결 주소에 ?oc=본인OC 를 붙이거나 X-Lawgo-OC 헤더로 보내세요."
+          ? `법령·결정례 조회에는 본인의 법제처 OC가 필요합니다. ① open.law.go.kr에서 OPEN API를 신청하고 서버 도메인에 ${new URL(this.cfg.publicEndpoint).hostname} 등록 ② ${this.keyPage()} 에서 OC 저장 (비회원은 연결 주소 끝에 ?oc=본인OC). 계산 도구는 키 없이 쓸 수 있습니다.`
           : "LAWGO_OC 환경변수가 비어 있습니다. open.law.go.kr에서 OPEN API 사용 신청 후 OC 값을 설정하세요.",
       );
     }
@@ -139,10 +139,14 @@ export class LawgoClient {
     if (this.serverKeyUsed >= limit) {
       throw new LawgoFault(
         "QUOTA_EXCEEDED",
-        `오늘 공용 키 사용 한도를 모두 썼습니다 (매일 0시 초기화). 계속 쓰려면 본인 법제처 OC를 쓰세요: ① open.law.go.kr OPEN API 신청 정보의 서버 도메인에 ${new URL(this.cfg.publicEndpoint).hostname} 등록 ② 연결 주소에 ?oc=본인OC 를 붙이거나 X-Lawgo-OC 헤더로 전달.`,
+        `오늘 공용 키 사용 한도를 모두 썼습니다 (매일 0시 초기화). 계속 쓰려면 본인 법제처 OC를 쓰세요: ① open.law.go.kr OPEN API 신청 정보의 서버 도메인에 ${new URL(this.cfg.publicEndpoint).hostname} 등록 ② ${this.keyPage()} 에서 OC 등록.`,
       );
     }
     this.serverKeyUsed++;
+  }
+
+  private keyPage(): string {
+    return `${this.cfg.brandUrl.replace(/\/+$/, "")}/mypage/office`;
   }
 
   private async fetchWithRetry(url: string, attempts = 3): Promise<string> {
@@ -179,7 +183,7 @@ export class LawgoClient {
       new LawgoFault(
         "KEY_REJECTED",
         fromUser
-          ? `입력한 OC 인증에 실패했습니다. open.law.go.kr OPEN API 신청 정보의 서버 도메인에 ${new URL(this.cfg.publicEndpoint).hostname} 를 등록했는지, 신청이 승인됐는지 확인하세요.`
+          ? `본인 OC 인증에 실패했습니다. open.law.go.kr OPEN API 신청 정보의 서버 도메인에 ${new URL(this.cfg.publicEndpoint).hostname} 를 등록했는지, 신청이 승인됐는지 확인하세요. 계정에 저장한 OC는 ${this.keyPage()} 에서, 연결 주소의 ?oc= 값은 커넥터 설정에서 바꿀 수 있습니다.`
           : "OC 인증에 실패했습니다. OPEN API 신청 승인 여부와 등록한 서버 IP/도메인을 확인하세요.",
       );
     if (!text.startsWith("{") && !text.startsWith("[")) {
