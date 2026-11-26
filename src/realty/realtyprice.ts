@@ -177,7 +177,9 @@ export class RealtyDesk {
       return model;
     } catch (err) {
       if (err instanceof RealtyFault) throw err;
-      const msg = ctrl.signal.aborted ? "응답 시간 초과" : err instanceof Error ? err.message : String(err);
+      const cause = err instanceof Error ? (err.cause as { code?: string; message?: string } | undefined) : undefined;
+      const detail = cause?.code ?? cause?.message;
+      const msg = ctrl.signal.aborted ? "응답 시간 초과" : `${err instanceof Error ? err.message : String(err)}${detail ? ` (${detail})` : ""}`;
       throw new RealtyFault("UPSTREAM", `부동산 공시가격 알리미 연결 실패: ${msg}`);
     } finally {
       clearTimeout(timer);
