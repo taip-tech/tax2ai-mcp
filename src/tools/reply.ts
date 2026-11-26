@@ -1,6 +1,7 @@
 // 도구 응답 공통 처리: 길이 제한·이어받기, 오류 표기, 면책 문구
 
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { FxFault } from "../fx/smbs.js";
 import { LawgoFault } from "../lawgo/client.js";
 
 export const NOTICE =
@@ -39,7 +40,7 @@ export function paged(body: string, cursor: number | undefined, budget: number, 
 }
 
 export function failure(err: unknown): CallToolResult {
-  if (err instanceof LawgoFault) {
+  if (err instanceof LawgoFault || err instanceof FxFault) {
     return { isError: true, content: [{ type: "text", text: `[${err.code}] ${err.message}` }] };
   }
   if (err instanceof RangeError) {
@@ -49,12 +50,17 @@ export function failure(err: unknown): CallToolResult {
   return { isError: true, content: [{ type: "text", text: `[INTERNAL] ${msg}` }] };
 }
 
-/** 핸들러를 감싸 예외를 MCP 오류 응답으로 바꾼다. */
-export function guarded<A>(fn: (args: A) => Promise<CallToolResult>) {
+const DEFAULT_SOURCE = "법제처 국가법령정보센터";
+
+/** 핸들러를 감싸 예외를 MCP 오류 응답으로 바꾼다. source를 주면 출처 표기의 '원문 출처'를 그 이름으로 바꾼다. */
+export function guarded<A>(fn: (args: A) => Promise<CallToolResult>, source?: string) {
   return async (args: A): Promise<CallToolResult> => {
     try {
       const result = await fn(args);
-      if (creditLine && !result.isError) result.content.push({ type: "text", text: creditLine });
+      if (creditLine && !result.isError) {
+        const line = source ? creditLine.replace(`원문 출처: ${DEFAULT_SOURCE}`, `원문 출처: ${source}`) : creditLine;
+        result.content.push({ type: "text", text: line });
+      }
       return result;
     } catch (err) {
       return failure(err);

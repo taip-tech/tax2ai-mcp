@@ -111,6 +111,7 @@ test("도구 목록과 프롬프트 노출", async () => {
     "entertainment_limit",
     "estimate_penalty",
     "estimate_tax",
+    "exchange_rate",
     "explain_term",
     "find_admin_rule",
     "find_form",
