@@ -6,6 +6,7 @@ import { registerFxTools } from "./tools/fxTools.js";
 import { registerLessonTools } from "./tools/lessonTools.js";
 import { registerOfficeTools } from "./tools/officeTools.js";
 import { registerPracticeTools } from "./tools/practiceTools.js";
+import { registerRealtyTools } from "./tools/realtyTools.js";
 import { setCreditLine } from "./tools/reply.js";
 import { registerResearchTools } from "./tools/researchTools.js";
 import { registerStatuteTools } from "./tools/statuteTools.js";
@@ -35,6 +36,7 @@ function guide(cfg: Settings): string {
     "- 계산(오프라인): estimate_tax, tax_deadline, estimate_penalty, entertainment_limit, deemed_interest",
     "- 국제조세: find_treaty",
     "- 외국환 환율: exchange_rate (서울외국환중개 일자별 매매기준율·재정환율). 엑셀·표를 받으면 파일을 읽어 거래일자·통화·외화금액을 rows로 넘기고, 돌려받은 적용 환율·원화환산액을 원래 표에 붙여 주세요.",
+    "- 부동산 공시가격: public_price (부동산 공시가격 알리미 — kind=apartment 공동주택가격, land 개별공시지가, house 개별주택가격, 연도별). address는 지번 주소로. 도로명 주소만 있으면 지번으로 바꿔 넣으세요.",
     "- 강의 AI비서: read_lesson(강의 교재 읽기) → 교재를 근거로 답변, join_class(반 참여 코드), submit_learning_result(수강생이 원할 때 학습 결과를 강사에게 제출), capture_upload_link(캡처 이미지는 이 링크로 올리게 안내)",
     "- 사무소 업무: office_profile(사무소 정보 등록), draft_document_request(신고 자료요청문), draft_job_posting·check_job_posting(채용공고 작성·법률 점검)",
     "  도구가 [NEEDS_INPUT]으로 객관식 질문을 돌려주면, 사용자에게 선택지로 보여 주고 고른 값으로 다시 호출하세요. 사용자가 이미 말한 정보는 묻지 마세요.",
@@ -64,6 +66,7 @@ export function buildServer(cfgOrDesks: Settings | Desks): McpServer {
   registerPracticeTools(server, desks);
   registerFieldTools(server, desks);
   registerFxTools(server, desks.fx);
+  registerRealtyTools(server, desks.realty);
   registerOfficeTools(server, desks, desks.profiles);
   registerLessonTools(server, desks.classroom, cfg.charBudget);
   registerWorkflowPrompts(server, cfg.attribution ? answerSignature(cfg) : null);

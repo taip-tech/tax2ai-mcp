@@ -6,6 +6,7 @@ import { StatuteDesk } from "../lawgo/statutes.js";
 import { openProfileStore, type ProfileStore } from "../office/profile.js";
 import { Classroom } from "../learn/classroom.js";
 import { FxDesk } from "../fx/smbs.js";
+import { RealtyDesk } from "../realty/realtyprice.js";
 
 export interface Desks {
   cfg: Settings;
@@ -16,10 +17,11 @@ export interface Desks {
   profiles: ProfileStore;
   classroom: Classroom;
   fx: FxDesk;
+  realty: RealtyDesk;
 }
 
 /** remote=true: HTTP 서버(로그인 사용자별 저장), false: 로컬 stdio(파일 저장) */
-export function openDesks(cfg: Settings, api = new LawgoClient(cfg), remote = false, fx = new FxDesk()): Desks {
+export function openDesks(cfg: Settings, api = new LawgoClient(cfg), remote = false, fx = new FxDesk(), realty = new RealtyDesk()): Desks {
   return {
     cfg,
     api,
@@ -29,6 +31,7 @@ export function openDesks(cfg: Settings, api = new LawgoClient(cfg), remote = fa
     profiles: openProfileStore(cfg, remote),
     classroom: new Classroom(cfg.brandUrl.replace(/\/+$/, ""), remote && cfg.authMode === "oauth" ? cfg.supabaseUrl : "", cfg.supabaseAnonKey),
     fx,
+    realty,
   };
 }
 

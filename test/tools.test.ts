@@ -120,6 +120,7 @@ test("도구 목록과 프롬프트 노출", async () => {
     "find_treaty",
     "join_class",
     "office_profile",
+    "public_price",
     "read_lesson",
     "read_provision",
     "read_ruling",

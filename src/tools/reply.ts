@@ -3,6 +3,7 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { FxFault } from "../fx/smbs.js";
 import { LawgoFault } from "../lawgo/client.js";
+import { RealtyFault } from "../realty/realtyprice.js";
 
 export const NOTICE =
   "※ 법제처 국가법령정보 원문을 가공한 참고자료입니다. 신고·의견 제출 전에는 원문과 적용 시점을 직접 확인하세요.";
@@ -40,7 +41,7 @@ export function paged(body: string, cursor: number | undefined, budget: number, 
 }
 
 export function failure(err: unknown): CallToolResult {
-  if (err instanceof LawgoFault || err instanceof FxFault) {
+  if (err instanceof LawgoFault || err instanceof FxFault || err instanceof RealtyFault) {
     return { isError: true, content: [{ type: "text", text: `[${err.code}] ${err.message}` }] };
   }
   if (err instanceof RangeError) {
